@@ -22,7 +22,7 @@ Add `?demo` to the address (for example `http://localhost:5173/?demo`) to run in
 1. Go to <https://supabase.com>, sign up and create a **New project** (free plan). Pick the Singapore region since your students are in the Philippines.
 2. Open **SQL Editor → New query**, paste the whole of [`supabase/schema.sql`](supabase/schema.sql) and click **Run**.
    This creates the tables, the security rules, Batches 1–3, the October news days, and **you as admin** (`fornillosoliver@gmail.com`).
-   Then do the same with [`supabase/002_trades_and_rules.sql`](supabase/002_trades_and_rules.sql). It adds personal rules, trade posts, private storage for MT5 screenshots and coach review.
+   Then do the same with [`supabase/002_trades_and_rules.sql`](supabase/002_trades_and_rules.sql), which adds personal rules, trade posts, private storage for MT5 screenshots and coach review. Then [`supabase/003_news_rule_and_screenshots.sql`](supabase/003_news_rule_and_screenshots.sql), which adds the second MT5 screenshot and the "no news = no trade" setting.
 3. Go to **Authentication → Sign In / Providers → Email** and turn **off "Confirm email"**, then save.
    *Why:* only emails you've added to the roster can create an account anyway. The free email sender also allows just a few emails per hour, so 40 students confirming on the same day would get stuck.
 4. Go to **Project Settings → API** and copy the **Project URL** and the **anon public** key.
@@ -54,7 +54,7 @@ Open the site, choose **First time? Activate**, use `fornillosoliver@gmail.com` 
 
 ## Each month (5 minutes)
 
-1. **Calendar**: mark the month's NFP, CPI, PPI, FOMC and US holidays (NO TRADE, or a news day with "trade after" time). Students see this before they check in.
+1. **Calendar**: add every USD high and medium-impact news day from Forex Factory. Tap a day, then tap the events. **Rule: a weekday with no news is a NO TRADE day**, so a day you don't fill in can't be traded. Also mark FOMC days and US holidays as NO TRADE, and use "trade only after a time" for 8:30 releases. Students see each day's status before they check in. The rule can be switched off in Setup.
 2. **Challenges → New challenge**: it pre-fills next month at 100% check-in and 100% rules. Adjust if needed.
 3. **New batch?** Setup → New batch, then Students → **Add many**, and paste `Name, email` lines from your sign-up sheet.
 4. Tell students: open the link, tap **First time? Activate**, use the same email you gave the coach.
@@ -63,7 +63,7 @@ Open the site, choose **First time? Activate**, use `fornillosoliver@gmail.com` 
 
 | Mark | Counts as check-in | Discipline % | Needs |
 |---|---|---|---|
-| ✓ Followed my rules | yes | ✓ | a trade post for each trade, all rules passed |
+| ✓ Followed my rules | yes | ✓ | a trade post for each trade (MT5 chart + MT5 history screenshots, thought process), all rules passed |
 | X Broke my rules | yes | ✗ | a trade post for each trade, plus what went wrong |
 | NO ENTRY | yes | not counted | a one-tap reason |
 | blank | no | not counted | – |
