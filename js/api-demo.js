@@ -239,7 +239,10 @@ export function createDemoApi() {
     },
 
     listTradingDays: () => ok(db.trading_days),
-    saveTradingDay: async (row) => upsert('trading_days', row, 'date'),
+    saveTradingDay: async (row) => upsert('trading_days', { ...row, source: 'manual' }, 'date'),
+    async syncForexFactory() {
+      throw new Error('Forex Factory sync only runs on the live site, not in demo mode.');
+    },
     deleteTradingDay: async (date) => remove('trading_days', 'date', date),
 
     myCheckIns: (studentId) => ok(db.check_ins.filter((c) => c.student_id === studentId)),

@@ -74,7 +74,12 @@ export function createSupabaseApi(url, key) {
     deleteStudent: (id) => run(sb.from('students').delete().eq('id', id)),
 
     listTradingDays: () => run(sb.from('trading_days').select('*')),
-    saveTradingDay: (row) => run(sb.from('trading_days').upsert(row).select().single()),
+    saveTradingDay: (row) => run(sb.from('trading_days').upsert({ ...row, source: 'manual' }).select().single()),
+    async syncForexFactory() {
+      const data = await run(sb.functions.invoke('ff-sync', { body: {} }));
+      if (!data?.ok) throw new Error(data?.error || 'Forex Factory sync failed');
+      return data;
+    },
     deleteTradingDay: (date) => run(sb.from('trading_days').delete().eq('date', date)),
 
     myCheckIns: (studentId) =>

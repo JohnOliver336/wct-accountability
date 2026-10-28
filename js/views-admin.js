@@ -622,20 +622,28 @@ const MEDIUM_IMPACT = ['Unemployment Claims', 'ADP Employment', 'CB Consumer Con
 export async function viewAdminCalendar(root) {
   let month = monthStart(store.today);
   const newsOnly = store.settings.news_days_only !== false;
+  const lastSyncOf = () => [...store.cal.values()].map((r) => r.synced_at).filter(Boolean).sort().at(-1);
+  let lastSync = lastSyncOf();
 
   function render() {
     root.innerHTML = `
       <section class="hero"><div class="eyebrow">Admin</div><h1>News calendar</h1>
         <p class="muted">Students see each day's status before they check in. ${newsOnly
-          ? '<strong>Your rule: no high or medium-impact news means no trading.</strong> Every weekday is a NO TRADE day until you add its news here. Tap a day and pick the events from Forex Factory (USD, high and medium impact).'
-          : 'Mark NFP, CPI, PPI, FOMC and US holidays here once a month. Weekdays you leave alone are normal trading days.'} You can switch the rule off in Setup.</p></section>
+          ? '<strong>Your rule: no high or medium-impact news means no trading.</strong>'
+          : 'Weekdays without anything set here are normal trading days.'}
+          The week fills itself from <strong>Forex Factory</strong> (USD, high and medium impact) every 6 hours: FOMC and the day before NFP, CPI or PPI become NO TRADE, and 8:30 high-impact releases become "trade after 9:00". Any day you edit yourself is never overwritten. The rule can be switched off in Setup.</p></section>
+      <div class="row-between wrap ff-bar">
+        <span class="muted small">${lastSync ? `Last Forex Factory sync: ${esc(new Date(lastSync).toLocaleString('en-US', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} PH` : 'Not synced from Forex Factory yet.'}</span>
+        <button class="btn ghost small" data-sync>↻ Sync from Forex Factory now</button>
+      </div>
       ${monthNav(month)}
       <div class="card">
         ${monthGrid(month, (d) => {
           const st = dayStatus(d);
           const cls = st.noNews ? 'gc-nonews-fill' : { NO_TRADE: 'gc-notrade-fill', RESTRICTED: 'gc-news-fill', OFF: 'gc-off', NORMAL: st.label ? 'gc-ok-fill' : '' }[st.kind] ?? '';
           const label = st.noNews ? 'No news' : st.label;
-          return { cls: `${cls} clickable ${d === store.today ? 'gc-today' : ''}`, attrs: `data-day="${d}"`, html: label ? `<span class="gc-label">${esc(label)}</span>` : '' };
+          const ff = store.cal.get(d)?.source === 'forexfactory' ? '<span class="gc-src" title="From Forex Factory">FF</span>' : '';
+          return { cls: `${cls} clickable ${d === store.today ? 'gc-today' : ''}`, attrs: `data-day="${d}"`, html: (label ? `<span class="gc-label">${esc(label)}</span>` : '') + ff };
         })}
         <div class="legend">
           <span><i class="sw sw-ok-fill"></i>News day, trading allowed</span>
@@ -643,19 +651,30 @@ export async function viewAdminCalendar(root) {
           <span><i class="sw sw-notrade-fill"></i>NO TRADE (you set it)</span>
           ${newsOnly ? '<span><i class="sw sw-nonews-fill"></i>No news, so no trade</span>' : ''}
           <span><i class="sw sw-off"></i>Not counted</span>
+          <span><span class="gc-src static">FF</span> from Forex Factory</span>
         </div>
       </div>`;
   }
 
-  root.addEventListener('click', (e) => {
+  root.addEventListener('click', async (e) => {
     const nav = e.target.closest('[data-month]');
     if (nav) { month = addMonths(month, Number(nav.dataset.month)); return render(); }
+    const sync = e.target.closest('[data-sync]');
+    if (sync) {
+      let res;
+      try { res = await busy(sync, () => api.syncForexFactory()); } catch { return; } // busy() already showed the error
+      store.cal = new Map((await api.listTradingDays()).map((r) => [r.date, r]));
+      lastSync = lastSyncOf();
+      toast(`Synced ${res.written.length} day${res.written.length === 1 ? '' : 's'} from Forex Factory${res.kept_manual.length ? `, kept ${res.kept_manual.length} you set yourself` : ''}.`);
+      return render();
+    }
     const cell = e.target.closest('[data-day]');
     if (!cell) return;
     const d = cell.dataset.day;
     const r = store.cal.get(d) ?? { date: d, is_trading_day: true, news_status: 'NORMAL', news_label: '', trade_allowed_after: null };
     openModal(`
       <h3>${esc(fmtLong(d))}</h3>
+      ${r.source === 'forexfactory' ? '<p class="muted small">Filled from Forex Factory. Saving a change here makes it yours, and the sync will leave this day alone from then on.</p>' : ''}
       <form class="form" data-form>
         <label>Status<select class="input" name="news_status">
           <option value="NORMAL" ${r.news_status === 'NORMAL' ? 'selected' : ''}>News day: trading allowed</option>
@@ -690,8 +709,13 @@ export async function viewAdminCalendar(root) {
         render();
       });
       $('[data-reset]', dlg).onclick = async () => {
-        await api.deleteTradingDay(d);
-        store.cal.delete(d);
+        if (r.source === 'forexfactory') {
+          // Keep an empty day you set yourself, so the next sync doesn't put the news back.
+          store.cal.set(d, await api.saveTradingDay({ date: d, news_status: 'NORMAL', news_label: null, trade_allowed_after: null, is_trading_day: true }));
+        } else {
+          await api.deleteTradingDay(d);
+          store.cal.delete(d);
+        }
         dlg.close();
         render();
       };
