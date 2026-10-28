@@ -1,7 +1,9 @@
-// The daily check-in form. Students attach trade posts to ✓ and X days; the rule check
-// turns a ✓ into an X when the posts break the student's own rules or the news calendar.
+// The daily check-in form: ✓ (followed my rules) or X (broke my rules). Until a student
+// picks one, the day is "No check-in". A ✓ day may have no trades (not trading when there
+// was no setup, or on a no-trade day, is following the rules). Any trades posted are run
+// through the rule check, which turns a ✓ into an X when a rule was broken.
 import { api } from './api.js';
-import { MARKS, MISTAKE_TAGS, NO_ENTRY_REASONS } from './config.js';
+import { MARKS, MISTAKE_TAGS } from './config.js';
 import { checkDay } from './rules.js';
 import { loadImages, openTradeForm, tradeCard } from './trades-ui.js';
 import { $, busy, confirmBox, dayStatus, esc, toast } from './ui.js';
@@ -21,10 +23,9 @@ export function mountMarkForm(el, { studentId, date, existing, onSaved, onCancel
     mark: existing?.mark ?? null,   // what will be saved (a ✓ that breaks a rule becomes X)
     tags: new Set(existing?.mistake_tags ?? []),
     note: existing?.reason_note ?? '',
-    reason: existing?.no_entry_reason ?? (noTrade ? 'news_day' : null),
     ticked: new Set(existing?.rules_ticked ?? []),
   };
-  const traded = (m) => m === 'CHECK' || m === 'X';
+  const marked = (m) => m === 'CHECK' || m === 'X';
 
   const flags = () => checkDay({
     status: st,
@@ -35,51 +36,42 @@ export function mountMarkForm(el, { studentId, date, existing, onSaved, onCancel
   });
 
   function valid() {
-    if (admin) {
-      if (s.mark === 'X') return s.tags.size > 0 || s.note.trim().length > 0 || (existing?.auto_flags?.length ?? 0) > 0;
-      if (s.mark === 'NO_ENTRY') return !!s.reason;
-      return s.mark === 'CHECK';
-    }
-    if (s.mark === 'NO_ENTRY') return !!s.reason && !trades.length;
-    if (!traded(s.mark) || !rulebook || !trades.length) return false;
-    if (s.mark === 'X') return s.tags.size > 0 || s.note.trim().length > 0 || flags().length > 0;
+    if (s.mark === 'X') return s.tags.size > 0 || s.note.trim().length > 0 || (admin ? existing?.auto_flags?.length > 0 : flags().length > 0);
+    if (s.mark !== 'CHECK') return false;
+    if (admin) return true;
+    // Trades are checked against the student's own rules, so those must exist first.
+    if (trades.length && !rulebook) return false;
     return flags().length === 0;
   }
 
   function tradesSection() {
     if (admin) return '';
-    if (!rulebook) {
-      return `<div class="banner banner-amber"><strong>Set your rules first</strong><span>Before you log a trading day, write your own risk rules for this month. It takes a minute. <a href="#/rules">Set my rules →</a></span></div>`;
-    }
     const f = flags();
-    const rules = rulebook.personal_rules ?? [];
+    const rules = rulebook?.personal_rules ?? [];
     return `
-      <label class="field-label">Your trades today <span class="req">Required</span></label>
-      <div class="trade-list">${trades.map((t) => tradeCard(t, { actions: true })).join('') || '<p class="muted small">Post every trade you took, one post per trade: MT5 chart execution and trade history screenshots, plus your thought process.</p>'}</div>
-      <button type="button" class="btn ghost block" data-add-trade>+ Post a trade</button>
-      ${rules.length ? `
+      <label class="field-label">Your trades today</label>
+      <div class="trade-list">${trades.map((t) => tradeCard(t, { actions: true })).join('') || `<p class="muted small">${s.mark === 'CHECK'
+        ? 'Didn\'t trade? Leave this empty. Not trading when there\'s no valid setup, or on a no-trade day, is following your rules.'
+        : 'If you took a trade, post it: one post per trade, with MT5 chart execution and trade history screenshots, plus your thought process.'}</p>`}</div>
+      ${rulebook
+        ? '<button type="button" class="btn ghost block" data-add-trade>+ Post a trade</button>'
+        : '<div class="banner banner-amber"><strong>Set your rules before posting trades</strong><span>Your trades are checked against your own risk rules. It takes a minute. <a href="#/rules">Set my rules →</a></span></div>'}
+      ${trades.length && rules.length ? `
         <label class="field-label">My rules: tick each one you followed</label>
         <div class="checklist">${rules.map((r) => `<label class="check"><input type="checkbox" data-rule="${esc(r)}" ${s.ticked.has(r) ? 'checked' : ''}> ${esc(r)}</label>`).join('')}</div>` : ''}
-      ${trades.length ? (f.length
+      ${trades.length && rulebook ? (f.length
         ? `<div class="banner banner-red"><strong>RULE CHECK · THIS IS AN X</strong>${f.map((x) => `<span>• ${esc(x)}</span>`).join('')}</div>`
         : `<div class="banner banner-green"><strong>RULE CHECK PASSED</strong><span>Risk ${esc(rulebook.max_risk_pct)}% max, ${rulebook.max_trades_day}/day, ${rulebook.max_trades_week}/week${rulebook.max_daily_loss_r ? `, ${rulebook.max_daily_loss_r}R daily stop` : ''}. All within your rules.</span></div>`) : ''}`;
   }
 
   function detail() {
-    if (traded(s.mark)) {
+    if (marked(s.mark)) {
       const xPart = s.mark === 'X' ? `
         <label class="field-label">What did you do wrong? ${flags().length && !admin ? '<span class="muted small">(optional, the rule check already found it)</span>' : '<span class="req">Required</span>'}</label>
         <div class="chips" data-group="tags">${MISTAKE_TAGS.map((x) => chip(x, x, s.tags.has(x))).join('')}</div>
         <textarea class="input" data-note rows="3" placeholder="What happened? e.g. entered before the MSS, no liquidity sweep">${esc(s.note)}</textarea>
         <p class="hint">Be honest. An X with a clear reason is how you improve. A win on a broken rule is worse than a loss on a followed plan.</p>` : '';
       return tradesSection() + xPart;
-    }
-    if (s.mark === 'NO_ENTRY') {
-      return `
-        ${trades.length && !admin ? '<div class="banner banner-red"><strong>You posted trades for this day</strong><span>Delete them first, or mark ✓ / X instead.</span></div>' : ''}
-        <label class="field-label">Why no trade? <span class="req">Required</span></label>
-        <div class="chips" data-group="reason">${NO_ENTRY_REASONS.map((x) => chip(x.id, x.label, s.reason === x.id)).join('')}</div>
-        <p class="hint">Patience is a win. NO ENTRY counts as showing up and keeps your streak alive. Only days you trade count toward your discipline score.</p>`;
     }
     return '';
   }
@@ -90,12 +82,13 @@ export function mountMarkForm(el, { studentId, date, existing, onSaved, onCancel
     s.mark = !admin && s.chosen === 'CHECK' && trades.length && flags().length ? 'X' : s.chosen;
     el.innerHTML = `
       <div class="mark-buttons">
-        ${['CHECK', 'X', 'NO_ENTRY'].map((m) => `
-          <button type="button" class="mark-btn m-${m.toLowerCase()}${s.mark === m ? ' on' : ''}" data-mark="${m}" ${m === 'CHECK' && noTrade ? 'disabled' : ''}>
+        ${['CHECK', 'X'].map((m) => `
+          <button type="button" class="mark-btn m-${m.toLowerCase()}${s.mark === m ? ' on' : ''}" data-mark="${m}">
             <span class="mark-glyph">${MARKS[m].glyph}</span><span>${MARKS[m].label}</span>
           </button>`).join('')}
       </div>
-      ${noTrade ? '<p class="hint warn">Today is a no-trade day, so "Followed my rules" is off. Didn\'t trade? Tap NO ENTRY. Traded anyway? That\'s an X.</p>' : ''}
+      ${!s.mark ? '<p class="hint">Not checked in yet. Until you tap ✓ or X, today counts as <strong>No check-in</strong> (0).</p>' : ''}
+      ${noTrade ? '<p class="hint warn">No-trade day. Didn\'t trade? Tap ✓, you followed the rule. Traded anyway? That\'s an X.</p>' : ''}
       ${s.mark ? `<div class="mark-detail">${detail()}</div>` : ''}
       ${s.mark ? `<div class="row-end">
         ${onCancel ? '<button type="button" class="btn ghost" data-cancel>Cancel</button>' : ''}
@@ -137,22 +130,21 @@ export function mountMarkForm(el, { studentId, date, existing, onSaved, onCancel
     if (e.target.closest('[data-cancel]')) return onCancel?.();
     const save = e.target.closest('[data-save]');
     if (save) {
-      const autoFlags = admin ? existing?.auto_flags ?? [] : traded(s.mark) ? flags() : [];
       const row = {
         id: existing?.id,
         student_id: studentId,
         date,
         mark: s.mark,
-        setup: traded(s.mark) ? trades[0]?.setup ?? existing?.setup ?? null : null,
-        session: traded(s.mark) ? trades[0]?.session ?? existing?.session ?? null : null,
+        setup: trades[0]?.setup ?? (admin ? existing?.setup ?? null : null),
+        session: trades[0]?.session ?? (admin ? existing?.session ?? null : null),
         mistake_tags: s.mark === 'X' ? [...s.tags] : [],
         reason_note: s.mark === 'X' ? s.note.trim() || null : null,
-        no_entry_reason: s.mark === 'NO_ENTRY' ? s.reason : null,
-        auto_flags: autoFlags,
-        rules_ticked: traded(s.mark) ? [...s.ticked] : [],
+        no_entry_reason: null,
+        auto_flags: admin ? existing?.auto_flags ?? [] : flags(),
+        rules_ticked: trades.length ? [...s.ticked] : [],
       };
       const saved = await busy(save, () => api.saveCheckIn(row));
-      toast(s.mark === 'X' ? 'Logged. Own it, learn it, come back tomorrow.' : s.mark === 'CHECK' ? 'Checked in. Discipline +1' : 'Checked in. Patience is a win.');
+      toast(s.mark === 'X' ? 'Logged. Own it, learn it, come back tomorrow.' : trades.length ? 'Checked in. Discipline +1' : 'Checked in. Not trading without a setup is discipline too.');
       onSaved?.(saved);
     }
   });

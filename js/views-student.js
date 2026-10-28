@@ -166,7 +166,7 @@ export async function viewProgress(root) {
       ${monthNav(month)}
       <div class="stats">
         ${stat('Check-in rate', pct(s.checkInRate), `${s.checkIns} of ${s.elapsed} trading days so far`)}
-        ${stat('Discipline', pct(s.rulesRate), `${s.check} ✓ · ${s.x} X · ${s.noEntry} no entry (not counted)`)}
+        ${stat('Discipline', pct(s.rulesRate), `${s.check} ✓ · ${s.x} X · ${s.missed} no check-in (not counted)`)}
         ${stat('Rule streak', `${st.rule}<small> days</small>`, `Best ever: ${st.best}`, 'tone-gold')}
         ${stat('Check-in streak', `${st.current}<small> days</small>`, 'Any mark counts')}
       </div>
@@ -242,7 +242,7 @@ export async function viewLeaderboard(root) {
 
     root.innerHTML = `
       <section class="hero"><div class="eyebrow">Leaderboard</div><h1>Discipline ranking</h1>
-        <p class="muted">Discipline = ✓ days ÷ (✓ + X days). Only days you traded count, NO ENTRY doesn't. Ties go to the better check-in rate, then more ✓ days. P&amp;L never counts.</p></section>
+        <p class="muted">Discipline = ✓ days ÷ (✓ + X days). Days with no check-in don't count. Ties go to the better check-in rate, then more ✓ days. P&amp;L never counts.</p></section>
       ${monthNav(month)}
       <div class="seg">
         ${store.me.batch_id ? `<button class="${scope === 'batch' ? 'on' : ''}" data-scope="batch">${esc(batchName(store.me))}</button>` : ''}
@@ -297,7 +297,7 @@ export async function viewChallenge(root) {
   const mine = reflections.find((r) => r.challenge_id === ch.id && r.student_id === me.id);
   const past = store.challenges.filter((x) => x.end_date < store.today && x.id !== ch.id).reverse();
   const msg = {
-    on_track: 'Every trading day, Monday to Friday: check in and follow your own rules. NO ENTRY keeps you in. One missed day or one X and you\'re out of this round.',
+    on_track: 'Every trading day, Monday to Friday: check in and follow your own rules. Not trading on a no-trade day is a ✓. One missed day or one X and you\'re out of this round.',
     needs_rules: 'You\'re still in, but you can\'t finish without your own rules. Set your max risk, max trades and personal rules now. <a href="#/rules">Set my rules →</a>',
     completed: 'You did it. Every single trading day, rules followed. That is the habit that makes traders consistent.',
     failed: 'This round is over for you, but keep checking in. Your streak and your rate still count, and the next challenge starts fresh.',

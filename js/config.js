@@ -11,15 +11,16 @@ export const MARKS = {
   CHECK: {
     label: 'Followed my rules',
     glyph: '✓',
-    definition: 'Followed my rules that day: right session and time (New York time, UTC-4), one of the entry models, risk and stop loss as taught, and no trading on no-trade days.',
+    definition: 'Followed my rules that day: right session and time (New York time, UTC-4), one of the entry models, risk and stop loss as taught. Not trading when there was no valid setup, or on a no-trade day, also counts.',
   },
   X: {
     label: 'Broke my rules',
     glyph: 'X',
     definition: 'Broke one or more of my rules that day. Write which one in Notes.',
   },
+  // No longer offered; kept so check-ins saved before the change still display.
   NO_ENTRY: {
-    label: 'No entry',
+    label: 'No entry (old)',
     glyph: '–',
     definition: 'Showed up and did not trade because there was no valid setup, or it was a no-trade day. Patience is a win.',
   },

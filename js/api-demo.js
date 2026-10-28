@@ -1,9 +1,9 @@
 // Offline demo backend. Same interface as api-supabase.js, data lives in localStorage.
 // Every name here is made up. Used until SUPABASE_URL is set in config.js.
 import { addDays, isWeekend, todayNY } from './dates.js';
-import { MISTAKE_TAGS, NO_ENTRY_REASONS, SCREENSHOT_RETENTION_DAYS, SETUPS, SESSIONS } from './config.js';
+import { MISTAKE_TAGS, SCREENSHOT_RETENTION_DAYS, SETUPS, SESSIONS } from './config.js';
 
-const KEY = 'wct-demo-db-v4';
+const KEY = 'wct-demo-db-v5';
 const IMG_PREFIX = 'wct-demo-img:';
 
 // Stand-in for an MT5 screenshot in the seeded data.
@@ -44,7 +44,7 @@ function seed() {
   const b3 = { id: 'b3', name: 'Batch 3', start_date: '2026-11-07', end_date: '2026-11-28', slots: 40 };
 
   const people = [
-    // name, batch, profile: [check-in probability, X probability, NO_ENTRY probability]
+    // name, batch, profile: [check-in probability, X probability, probability of a ✓ day with no trade]
     ['Paolo Reyes', 'b1', [0.98, 0.04, 0.3]],
     ['Bea Santos', 'b1', [0.92, 0.12, 0.35]],
     ['Miguel Tan', 'b1', [0.7, 0.2, 0.3]],
@@ -91,9 +91,11 @@ function seed() {
     for (let d = start; d < today; d = addDays(d, 1)) {
       if (isWeekend(d) || rand() > pIn) continue;
       const r = rand();
-      const mark = r < pX ? 'X' : r < pX + pNE ? 'NO_ENTRY' : 'CHECK';
+      // A ✓ without a trade is a patient day: no valid setup, so no entry.
+      const mark = r < pX ? 'X' : 'CHECK';
+      const tookTrade = mark === 'X' || r >= pX + pNE;
       const row = { id: uid(), student_id: id, date: d, mark, setup: null, session: null, mistake_tags: [], reason_note: null, no_entry_reason: null, created_at: d + 'T14:00:00Z', edited_at: null, coach_status: null, coach_note: null, reviewed_at: null, auto_flags: [], rules_ticked: [] };
-      if (mark !== 'NO_ENTRY') {
+      if (tookTrade) {
         trades.push({
           id: uid(), student_id: id, date: d, symbol: symbols[Math.floor(rand() * symbols.length)],
           direction: rand() < 0.5 ? 'Long' : 'Short', setup: SETUPS[Math.floor(rand() * SETUPS.length)],
@@ -107,9 +109,7 @@ function seed() {
       if (mark === 'X') {
         row.mistake_tags = [MISTAKE_TAGS[Math.floor(rand() * MISTAKE_TAGS.length)]];
         row.reason_note = notes[Math.floor(rand() * notes.length)];
-      } else if (mark === 'NO_ENTRY') {
-        row.no_entry_reason = NO_ENTRY_REASONS[Math.floor(rand() * 3)].id;
-      } else {
+      } else if (tookTrade) {
         row.setup = SETUPS[Math.floor(rand() * SETUPS.length)];
         row.session = SESSIONS[2].name;
       }
@@ -135,17 +135,17 @@ function seed() {
     trade_posts: trades,
     rulebooks,
     challenges: [
-      { id: 'c-oct', name: 'October 30-Day Challenge', description: 'Set your own rules, check in every trading day Monday to Friday, and follow them on every trade. NO ENTRY keeps you in, one X takes you out.', start_date: '2026-10-01', end_date: '2026-10-30', min_checkin_pct: 100, min_rules_pct: 100 },
-      { id: 'c-nov', name: 'November 30-Day Challenge', description: 'Set your own rules, check in every trading day Monday to Friday, and follow them on every trade. NO ENTRY keeps you in, one X takes you out.', start_date: '2026-11-02', end_date: '2026-11-30', min_checkin_pct: 100, min_rules_pct: 100 },
+      { id: 'c-oct', name: 'October 30-Day Challenge', description: 'Set your own rules, check in every trading day Monday to Friday, and follow them on every trade. Not trading on a no-trade day is a ✓, one X takes you out.', start_date: '2026-10-01', end_date: '2026-10-30', min_checkin_pct: 100, min_rules_pct: 100 },
+      { id: 'c-nov', name: 'November 30-Day Challenge', description: 'Set your own rules, check in every trading day Monday to Friday, and follow them on every trade. Not trading on a no-trade day is a ✓, one X takes you out.', start_date: '2026-11-02', end_date: '2026-11-30', min_checkin_pct: 100, min_rules_pct: 100 },
     ],
     reflections: [],
     app_settings: { id: 1, followup_threshold: 2, inactive_days: 3, news_days_only: true },
   };
-  // Seeded students don't trade on no-trade days: turn those into NO ENTRY.
+  // Seeded students don't trade on no-trade days: those are ✓ days with no trades.
   const tradeable = new Set(db.trading_days.filter((r) => r.news_status !== 'NO_TRADE' && r.news_label).map((r) => r.date));
   for (const c of db.check_ins) {
-    if (c.mark !== 'NO_ENTRY' && !tradeable.has(c.date)) {
-      Object.assign(c, { mark: 'NO_ENTRY', no_entry_reason: 'news_day', setup: null, session: null, mistake_tags: [], reason_note: null });
+    if (!tradeable.has(c.date)) {
+      Object.assign(c, { mark: 'CHECK', setup: null, session: null, mistake_tags: [], reason_note: null });
     }
   }
   db.trade_posts = db.trade_posts.filter((t) => tradeable.has(t.date));

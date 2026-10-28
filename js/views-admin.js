@@ -40,7 +40,7 @@ function exportCsv(month, students, marks) {
   const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const glyph = { CHECK: '✓', X: 'X', NO_ENTRY: 'NO ENTRY' };
   const lines = [
-    ['#', 'Batch', 'Student Name', ...days.map((d) => fmtDate(d, { month: 'short', day: 'numeric' })), '✓', 'X', 'NO ENTRY', 'Check-ins', 'Check-in %', 'Followed rules %', 'Notes / Reason'].map(q).join(','),
+    ['#', 'Batch', 'Student Name', ...days.map((d) => fmtDate(d, { month: 'short', day: 'numeric' })), '✓', 'X', 'No check-in', 'Check-ins', 'Check-in %', 'Followed rules %', 'Notes / Reason'].map(q).join(','),
     ['', '', 'News', ...days.map((d) => store.cal.get(d)?.news_label ?? ''), '', '', '', '', '', '', ''].map(q).join(','),
   ];
   students.forEach((s, i) => {
@@ -49,7 +49,7 @@ function exportCsv(month, students, marks) {
     const notes = days.filter((d) => m.get(d)?.mark === 'X')
       .map((d) => `${fmtDate(d, { month: 'short', day: 'numeric' })}: ${[...(m.get(d).mistake_tags || []), m.get(d).reason_note].filter(Boolean).join(' – ')}`)
       .join(' | ');
-    lines.push([i + 1, batchName(s), s.full_name, ...days.map((d) => glyph[m.get(d)?.mark] ?? ''), sum.check, sum.x, sum.noEntry, sum.checkIns, pct(sum.checkInRate), pct(sum.rulesRate), notes].map(q).join(','));
+    lines.push([i + 1, batchName(s), s.full_name, ...days.map((d) => glyph[m.get(d)?.mark] ?? ''), sum.check, sum.x, sum.missed, sum.checkIns, pct(sum.checkInRate), pct(sum.rulesRate), notes].map(q).join(','));
   });
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
@@ -101,13 +101,13 @@ function buildSignals(checkIns, trades, students) {
 // Export for Claude: one JSON file with everything needed to audit the month
 // ---------------------------------------------------------------------------
 
-const CLAUDE_PROMPT = `You are helping a trading coach (Winner Circle Traders, 30-Day Development Program) review a month of student accountability check-ins. Each student sets their own rules (max risk per trade, max trades per day/week, daily stop, personal rules). Each trading day they mark CHECK (followed my rules), X (broke my rules) or NO_ENTRY (showed up, no trade). CHECK and X days must include one trade post per trade with two MT5 screenshots (chart execution and trade history), an optional TradingView link and their thought process. Students may only trade on days with high or medium-impact USD news (see trading_days); a day without news is a no-trade day.
+const CLAUDE_PROMPT = `You are helping a trading coach (Winner Circle Traders, 30-Day Development Program) review a month of student accountability check-ins. Each student sets their own rules (max risk per trade, max trades per day/week, daily stop, personal rules). Each trading day they mark CHECK (followed my rules) or X (broke my rules). CHECK and X days must include one trade post per trade with two MT5 screenshots (chart execution and trade history), an optional TradingView link and their thought process. Students may only trade on days with high or medium-impact USD news (see trading_days); a day without news is a no-trade day.
 
-Scoring: discipline % = CHECK / (CHECK + X). NO_ENTRY is attendance only. A day the coach marked "invalid" counts as X (see effective_mark). P&L never counts.
+Scoring: discipline % = CHECK / (CHECK + X). A CHECK day may have no trades: not trading when there was no setup, or on a no-trade day, is following the rules. A day with no mark is "no check-in" and counts as 0. NO_ENTRY only appears on old check-ins; treat it as attendance only. A day the coach marked "invalid" counts as X (see effective_mark). P&L never counts.
 
 Please produce:
 1. DISCIPLINE RANKING: the top 10 by discipline % (ties: check-in rate, then number of CHECK days). Name anyone with fewer than 3 traded days separately, since their % means little.
-2. RELIABILITY REVIEW: students whose logs may not be genuine. For each, list the concrete evidence from the data, e.g. the "signals" field, CHECK days whose trades break the student's own rulebook (risk, trade count, daily stop, news days) without being flagged, thought processes that are generic, vague or copied, results that look too perfect, entries outside their stated session, days logged late or edited, every day NO_ENTRY with perfect attendance, missing ticket numbers. Rate each low / medium / high concern. Don't accuse anyone: present the evidence and let the coach decide. Also say which students look clearly genuine.
+2. RELIABILITY REVIEW: students whose logs may not be genuine. For each, list the concrete evidence from the data, e.g. the "signals" field, CHECK days whose trades break the student's own rulebook (risk, trade count, daily stop, news days) without being flagged, thought processes that are generic, vague or copied, results that look too perfect, entries outside their stated session, days logged late or edited, CHECK every single day with almost no trades posted, missing ticket numbers. Rate each low / medium / high concern. Don't accuse anyone: present the evidence and let the coach decide. Also say which students look clearly genuine.
 3. MISTAKE PATTERNS: the most common rule breaks this month and one suggested topic for the next Saturday lesson.
 4. FOLLOW-UPS: who to message this week (gone quiet, repeated X, high concern), each with a one-line suggested message.
 Keep it short, use tables where it helps. Answer in English.`;
@@ -564,7 +564,7 @@ export async function viewAdminStudent(root, [id]) {
       ${monthNav(month)}
       <div class="stats">
         ${stat('Check-in rate', pct(sum.checkInRate), `${sum.checkIns} of ${sum.elapsed} days`)}
-        ${stat('Discipline', pct(sum.rulesRate), `${sum.check} ✓ · ${sum.x} X · ${sum.noEntry} no entry`)}
+        ${stat('Discipline', pct(sum.rulesRate), `${sum.check} ✓ · ${sum.x} X · ${sum.missed} no check-in`)}
         ${stat('Rule streak', st.rule, `Best ${st.best}`, 'tone-gold')}
         ${stat('Trades posted', trades.length, lastCheckIn(m) ? `last check-in ${fmtDate(lastCheckIn(m), { month: 'short', day: 'numeric' })}` : 'no check-ins yet')}
       </div>
@@ -733,7 +733,7 @@ function challengeForm(c, onDone) {
   const firstTrading = tradingDays(next, monthEnd(next), store.cal)[0] ?? next;
   const v = c ?? {
     name: `${fmtDate(next, { month: 'long' })} 30-Day Challenge`,
-    description: 'Set your own rules, check in every trading day Monday to Friday, and follow them on every trade. NO ENTRY keeps you in, one X takes you out.',
+    description: 'Set your own rules, check in every trading day Monday to Friday, and follow them on every trade. Not trading on a no-trade day is a ✓, one X takes you out.',
     start_date: firstTrading, end_date: monthEnd(next), min_checkin_pct: 100, min_rules_pct: 100,
   };
   openModal(`
@@ -749,7 +749,7 @@ function challengeForm(c, onDone) {
         <label>Check-in % needed<input class="input" type="number" min="0" max="100" name="min_checkin_pct" value="${v.min_checkin_pct}"></label>
         <label>Rules followed % needed<input class="input" type="number" min="0" max="100" name="min_rules_pct" value="${v.min_rules_pct}"></label>
       </div>
-      <p class="hint">100 / 100 means: no missed trading day and no X. Discipline is ✓ ÷ (✓ + X), so NO ENTRY days don't affect it. Students must also set their own rules for the month to finish.</p>
+      <p class="hint">100 / 100 means: no missed trading day and no X. Discipline is ✓ ÷ (✓ + X). Not trading on a no-trade day is a ✓. Students must also set their own rules for the month to finish.</p>
       <div class="row-end"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">Save</button></div>
     </form>`, (dlg) => {
     $('[data-form]', dlg).addEventListener('submit', async (e) => {

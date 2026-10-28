@@ -77,7 +77,7 @@ export function newsBanner(date) {
   const st = dayStatus(date);
   if (st.kind === 'NO_TRADE') {
     return `<div class="banner banner-red"><strong>NO TRADE DAY</strong>${st.label ? ` · ${esc(st.label)}` : ''}
-      <span>Showing up and not trading is a win today. Mark NO ENTRY.</span></div>`;
+      <span>Don't trade today. If you didn't, tap ✓: you followed the rule.</span></div>`;
   }
   if (st.kind === 'RESTRICTED') {
     const after = st.after ? `Trade only after ${fmtTime12(st.after)} New York (${nyTimeInManila(date, st.after)} PH time).` : 'High-impact news today. Check the time before you enter.';
@@ -93,7 +93,7 @@ export function newsBanner(date) {
 // ---------------------------------------------------------------------------
 
 export function markPill(mark) {
-  if (!mark) return '<span class="pill pill-blank">Not checked in</span>';
+  if (!mark) return '<span class="pill pill-blank">No check-in</span>';
   return `<span class="pill pill-${mark.toLowerCase()}">${MARKS[mark].glyph} ${MARKS[mark].label}</span>`;
 }
 
@@ -141,7 +141,6 @@ export function monthGrid(month, cell) {
 export function legend() {
   return `<div class="legend">
     <span><i class="sw sw-check"></i>Followed rules</span>
-    <span><i class="sw sw-no_entry"></i>No entry</span>
     <span><i class="sw sw-x"></i>Broke rules</span>
     <span><i class="sw sw-blank"></i>No check-in</span>
     <span><i class="sw sw-notrade"></i>No-trade day</span>
