@@ -157,7 +157,7 @@ async function exportForClaude(month, students, marks) {
           trades: trades.filter((t) => t.student_id === s.id && t.date === d).map((t) => ({
             symbol: t.symbol, direction: t.direction, entry_model: t.setup, session: t.session,
             entry_time_ny: t.entry_time_ny?.slice(0, 5) ?? null, risk_pct: Number(t.risk_pct), result_r: Number(t.result_r),
-            mt5_ticket: t.ticket, tradingview_url: t.chart_url, has_mt5_chart_screenshot: !!t.chart_path, has_mt5_history_screenshot: !!t.mt5_path, thoughts: t.thoughts, posted_at: t.created_at,
+            mt5_ticket: t.ticket, tradingview_url: t.chart_url, has_mt5_chart_screenshot: !!t.chart_path, has_mt5_history_screenshot: !!t.mt5_path, screenshots_deleted_after_60_days: !!t.images_removed_at, thoughts: t.thoughts, posted_at: t.created_at,
           })),
         };
       }),

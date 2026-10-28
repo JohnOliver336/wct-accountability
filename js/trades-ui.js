@@ -1,6 +1,6 @@
 // Trade posts: the form a student fills for each trade, and the card that shows one.
 import { api } from './api.js';
-import { SETUPS } from './config.js';
+import { SCREENSHOT_RETENTION_DAYS, SETUPS } from './config.js';
 import { fmtTime12, phTimeToNY } from './dates.js';
 import { sessionFor } from './rules.js';
 import { $, busy, esc, openModal, toast } from './ui.js';
@@ -40,8 +40,10 @@ export function tradeCard(t, { actions = false } = {}) {
   return `
     <div class="trade-card" data-trade="${t.id}">
       <div class="trade-thumbs">
-        ${t.chart_path ? `<figure><img class="trade-thumb" data-path="${esc(t.chart_path)}" alt="MT5 chart execution"><figcaption>Chart</figcaption></figure>` : ''}
-        <figure><img class="trade-thumb" data-path="${esc(t.mt5_path)}" alt="MT5 trade history"><figcaption>History</figcaption></figure>
+        ${t.images_removed_at
+          ? `<div class="thumb-gone">Screenshots removed after ${SCREENSHOT_RETENTION_DAYS} days</div>`
+          : `${t.chart_path ? `<figure><img class="trade-thumb" data-path="${esc(t.chart_path)}" alt="MT5 chart execution"><figcaption>Chart</figcaption></figure>` : ''}
+        <figure><img class="trade-thumb" data-path="${esc(t.mt5_path)}" alt="MT5 trade history"><figcaption>History</figcaption></figure>`}
       </div>
       <div class="trade-body">
         <div class="row-between">

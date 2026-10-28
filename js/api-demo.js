@@ -1,9 +1,9 @@
 // Offline demo backend. Same interface as api-supabase.js, data lives in localStorage.
 // Every name here is made up. Used until SUPABASE_URL is set in config.js.
 import { addDays, isWeekend, todayNY } from './dates.js';
-import { MISTAKE_TAGS, NO_ENTRY_REASONS, SETUPS, SESSIONS } from './config.js';
+import { MISTAKE_TAGS, NO_ENTRY_REASONS, SCREENSHOT_RETENTION_DAYS, SETUPS, SESSIONS } from './config.js';
 
-const KEY = 'wct-demo-db-v3';
+const KEY = 'wct-demo-db-v4';
 const IMG_PREFIX = 'wct-demo-img:';
 
 // Stand-in for an MT5 screenshot in the seeded data.
@@ -101,6 +101,7 @@ function seed() {
           risk_pct: mark === 'X' && rand() < 0.3 ? 2 : 1, result_r: Math.round((rand() * 4 - 1.2) * 10) / 10,
           ticket: String(50000000 + Math.floor(rand() * 9999999)), mt5_path: 'sample', chart_path: 'sample', chart_url: `https://www.tradingview.com/x/sample${Math.floor(rand() * 1e9)}/`,
           thoughts: thoughts[Math.floor(rand() * thoughts.length)], created_at: d + 'T14:00:00Z', edited_at: null,
+          images_removed_at: d < addDays(today, -SCREENSHOT_RETENTION_DAYS) ? today + 'T03:00:00Z' : null,
         });
       }
       if (mark === 'X') {
