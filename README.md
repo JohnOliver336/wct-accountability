@@ -54,7 +54,7 @@ Open the site, choose **First time? Activate**, use `fornillosoliver@gmail.com` 
 
 ## Each month (5 minutes)
 
-1. **Calendar**: add every USD high and medium-impact news day from Forex Factory. Tap a day, then tap the events. **Rule: a weekday with no news is a NO TRADE day**, so a day you don't fill in can't be traded. Also mark FOMC days and US holidays as NO TRADE, and use "trade only after a time" for 8:30 releases. Students see each day's status before they check in. The rule can be switched off in Setup.
+1. **Calendar**: fills itself from **Forex Factory** every 6 hours (USD high and medium impact, one week at a time, since Forex Factory only publishes the current week). Synced days show an **FF** tag. The sync applies your rules: FOMC day = NO TRADE, the day before NFP, CPI or PPI = NO TRADE, a high-impact 8:30 release = trade only after 9:00, a US holiday = NO TRADE. **A weekday with no news is a NO TRADE day** (this rule can be switched off in Setup). Any day you edit yourself is never overwritten. "↻ Sync from Forex Factory now" runs it on demand. The sync code is in `supabase/functions/ff-sync`, and the schedule comes from `supabase/004_forexfactory_sync.sql`.
 2. **Challenges → New challenge**: it pre-fills next month at 100% check-in and 100% rules. Adjust if needed.
 3. **New batch?** Setup → New batch, then Students → **Add many**, and paste `Name, email` lines from your sign-up sheet.
 4. Tell students: open the link, tap **First time? Activate**, use the same email you gave the coach.
