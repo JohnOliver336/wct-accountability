@@ -65,7 +65,12 @@ export function dayStatus(date) {
   const r = store.cal.get(date);
   if (isWeekend(date)) return { kind: 'WEEKEND' };
   if (r?.is_trading_day === false) return { kind: 'OFF', label: r.news_label };
-  return { kind: r?.news_status || 'NORMAL', label: r?.news_label, after: r?.trade_allowed_after?.slice(0, 5) };
+  const kind = r?.news_status || 'NORMAL';
+  // Coach's rule: no high or medium-impact news that day means no trading.
+  if (kind === 'NORMAL' && !r?.news_label && store.settings.news_days_only !== false) {
+    return { kind: 'NO_TRADE', label: 'No high or medium-impact news', noNews: true };
+  }
+  return { kind, label: r?.news_label, after: r?.trade_allowed_after?.slice(0, 5) };
 }
 
 export function newsBanner(date) {
@@ -80,7 +85,7 @@ export function newsBanner(date) {
   }
   if (st.kind === 'WEEKEND') return `<div class="banner banner-calm"><strong>Weekend</strong><span>Markets are closed. Rest, review, and come back Monday.</span></div>`;
   if (st.kind === 'OFF') return `<div class="banner banner-calm"><strong>No session</strong>${st.label ? ` · ${esc(st.label)}` : ''}<span>Not counted as a trading day.</span></div>`;
-  return `<div class="banner banner-green"><strong>Normal trading day</strong><span>No red-folder restrictions. Trade your plan, or wait for it.</span></div>`;
+  return `<div class="banner banner-green"><strong>Trading day</strong>${st.label ? ` · ${esc(st.label)}` : ''}<span>${st.label ? 'News is out there today. Trade your plan, or wait for it.' : 'Trade your plan, or wait for it.'}</span></div>`;
 }
 
 // ---------------------------------------------------------------------------

@@ -101,7 +101,7 @@ function buildSignals(checkIns, trades, students) {
 // Export for Claude: one JSON file with everything needed to audit the month
 // ---------------------------------------------------------------------------
 
-const CLAUDE_PROMPT = `You are helping a trading coach (Winner Circle Traders, 30-Day Development Program) review a month of student accountability check-ins. Each student sets their own rules (max risk per trade, max trades per day/week, daily stop, personal rules). Each trading day they mark CHECK (followed my rules), X (broke my rules) or NO_ENTRY (showed up, no trade). CHECK and X days must include trade posts with an MT5 execution screenshot, a TradingView chart link and their thought process.
+const CLAUDE_PROMPT = `You are helping a trading coach (Winner Circle Traders, 30-Day Development Program) review a month of student accountability check-ins. Each student sets their own rules (max risk per trade, max trades per day/week, daily stop, personal rules). Each trading day they mark CHECK (followed my rules), X (broke my rules) or NO_ENTRY (showed up, no trade). CHECK and X days must include one trade post per trade with two MT5 screenshots (chart execution and trade history), an optional TradingView link and their thought process. Students may only trade on days with high or medium-impact USD news (see trading_days); a day without news is a no-trade day.
 
 Scoring: discipline % = CHECK / (CHECK + X). NO_ENTRY is attendance only. A day the coach marked "invalid" counts as X (see effective_mark). P&L never counts.
 
@@ -157,7 +157,7 @@ async function exportForClaude(month, students, marks) {
           trades: trades.filter((t) => t.student_id === s.id && t.date === d).map((t) => ({
             symbol: t.symbol, direction: t.direction, entry_model: t.setup, session: t.session,
             entry_time_ny: t.entry_time_ny?.slice(0, 5) ?? null, risk_pct: Number(t.risk_pct), result_r: Number(t.result_r),
-            mt5_ticket: t.ticket, chart_url: t.chart_url, has_mt5_screenshot: !!t.mt5_path, thoughts: t.thoughts, posted_at: t.created_at,
+            mt5_ticket: t.ticket, tradingview_url: t.chart_url, has_mt5_chart_screenshot: !!t.chart_path, has_mt5_history_screenshot: !!t.mt5_path, thoughts: t.thoughts, posted_at: t.created_at,
           })),
         };
       }),
@@ -616,21 +616,34 @@ export async function viewAdminStudent(root, [id]) {
 // NEWS CALENDAR
 // ---------------------------------------------------------------------------
 
+const HIGH_IMPACT = ['NFP', 'CPI', 'Core CPI', 'PPI', 'FOMC', 'GDP', 'Core PCE', 'Retail Sales', 'ISM Manufacturing PMI', 'ISM Services PMI', 'JOLTS'];
+const MEDIUM_IMPACT = ['Unemployment Claims', 'ADP Employment', 'CB Consumer Confidence', 'UoM Consumer Sentiment', 'Durable Goods', 'Empire State Manufacturing', 'Philly Fed Manufacturing', 'Fed Chair speaks'];
+
 export async function viewAdminCalendar(root) {
   let month = monthStart(store.today);
+  const newsOnly = store.settings.news_days_only !== false;
 
   function render() {
     root.innerHTML = `
       <section class="hero"><div class="eyebrow">Admin</div><h1>News calendar</h1>
-        <p class="muted">Students see each day's status before they check in. Mark NFP, CPI, PPI, FOMC and US holidays here once a month. Weekdays you leave alone are normal trading days.</p></section>
+        <p class="muted">Students see each day's status before they check in. ${newsOnly
+          ? '<strong>Your rule: no high or medium-impact news means no trading.</strong> Every weekday is a NO TRADE day until you add its news here. Tap a day and pick the events from Forex Factory (USD, high and medium impact).'
+          : 'Mark NFP, CPI, PPI, FOMC and US holidays here once a month. Weekdays you leave alone are normal trading days.'} You can switch the rule off in Setup.</p></section>
       ${monthNav(month)}
       <div class="card">
         ${monthGrid(month, (d) => {
           const st = dayStatus(d);
-          const cls = { NO_TRADE: 'gc-notrade-fill', RESTRICTED: 'gc-news-fill', OFF: 'gc-off' }[st.kind] ?? '';
-          return { cls: `${cls} clickable ${d === store.today ? 'gc-today' : ''}`, attrs: `data-day="${d}"`, html: st.label ? `<span class="gc-label">${esc(st.label)}</span>` : '' };
+          const cls = st.noNews ? 'gc-nonews-fill' : { NO_TRADE: 'gc-notrade-fill', RESTRICTED: 'gc-news-fill', OFF: 'gc-off', NORMAL: st.label ? 'gc-ok-fill' : '' }[st.kind] ?? '';
+          const label = st.noNews ? 'No news' : st.label;
+          return { cls: `${cls} clickable ${d === store.today ? 'gc-today' : ''}`, attrs: `data-day="${d}"`, html: label ? `<span class="gc-label">${esc(label)}</span>` : '' };
         })}
-        <div class="legend"><span><i class="sw sw-notrade-fill"></i>No trade</span><span><i class="sw sw-news-fill"></i>News, restricted</span><span><i class="sw sw-off"></i>Not counted</span></div>
+        <div class="legend">
+          <span><i class="sw sw-ok-fill"></i>News day, trading allowed</span>
+          <span><i class="sw sw-news-fill"></i>Trade only after a time</span>
+          <span><i class="sw sw-notrade-fill"></i>NO TRADE (you set it)</span>
+          ${newsOnly ? '<span><i class="sw sw-nonews-fill"></i>No news, so no trade</span>' : ''}
+          <span><i class="sw sw-off"></i>Not counted</span>
+        </div>
       </div>`;
   }
 
@@ -645,15 +658,28 @@ export async function viewAdminCalendar(root) {
       <h3>${esc(fmtLong(d))}</h3>
       <form class="form" data-form>
         <label>Status<select class="input" name="news_status">
-          <option value="NORMAL" ${r.news_status === 'NORMAL' ? 'selected' : ''}>Normal trading day</option>
-          <option value="RESTRICTED" ${r.news_status === 'RESTRICTED' ? 'selected' : ''}>News day (trade only after a time)</option>
+          <option value="NORMAL" ${r.news_status === 'NORMAL' ? 'selected' : ''}>News day: trading allowed</option>
+          <option value="RESTRICTED" ${r.news_status === 'RESTRICTED' ? 'selected' : ''}>News day: trade only after a time</option>
           <option value="NO_TRADE" ${r.news_status === 'NO_TRADE' ? 'selected' : ''}>NO TRADE day</option>
         </select></label>
-        <label>Label<input class="input" name="news_label" value="${esc(r.news_label)}" placeholder="e.g. FOMC 2PM, Day before CPI, US holiday"></label>
-        <label>Trade allowed after <span class="muted small">(New York time)</span><input class="input" type="time" name="trade_allowed_after" value="${esc(r.trade_allowed_after?.slice(0, 5) ?? '')}"></label>
+        <label>Today's news <span class="muted small">(tap to add)</span><input class="input" name="news_label" value="${esc(r.news_label)}" placeholder="e.g. Unemployment Claims 8:30, Core CPI 8:30"></label>
+        <div class="field-label">High impact</div>
+        <div class="chips">${HIGH_IMPACT.map((x) => `<button type="button" class="chip" data-event="${esc(x)}">+ ${esc(x)}</button>`).join('')}</div>
+        <div class="field-label">Medium impact</div>
+        <div class="chips">${MEDIUM_IMPACT.map((x) => `<button type="button" class="chip" data-event="${esc(x)}">+ ${esc(x)}</button>`).join('')}</div>
+        <label>Trade allowed after <span class="muted small">(New York time, only for "trade only after a time")</span><input class="input" type="time" name="trade_allowed_after" value="${esc(r.trade_allowed_after?.slice(0, 5) ?? '')}"></label>
+        ${newsOnly ? '<p class="hint">A "trading allowed" day with no news written in counts as no news, so students can\'t trade.</p>' : ''}
         <label class="check"><input type="checkbox" name="off" ${r.is_trading_day === false ? 'checked' : ''}> Don't count this day at all (market fully closed)</label>
-        <div class="row-between"><button type="button" class="btn ghost danger" data-reset>Reset to normal</button><button class="btn primary">Save</button></div>
+        <div class="row-between"><button type="button" class="btn ghost danger" data-reset>${newsOnly ? 'Clear (no news)' : 'Reset to normal'}</button><button class="btn primary">Save</button></div>
       </form>`, (dlg) => {
+      dlg.addEventListener('click', (ev) => {
+        const chip = ev.target.closest('[data-event]');
+        if (!chip) return;
+        const input = $('[name="news_label"]', dlg);
+        const parts = input.value.split('·').map((x) => x.trim()).filter(Boolean);
+        if (!parts.includes(chip.dataset.event)) parts.push(chip.dataset.event);
+        input.value = parts.join(' · ');
+      });
       $('[data-form]', dlg).addEventListener('submit', async (ev) => {
         ev.preventDefault();
         const f = Object.fromEntries(new FormData(ev.target));
@@ -815,12 +841,13 @@ export async function viewAdminSetup(root) {
           <td class="right"><button class="btn ghost small" data-edit="${b.id}">Edit</button></td></tr>`).join('')}</tbody></table>
       </div>
       <div class="card">
-        <h3>Alerts</h3>
+        <h3>Alerts &amp; rules</h3>
         <form class="form" data-settings>
           <div class="form-row">
             <label>Follow-up after this many X days in a month<input class="input" type="number" min="1" name="followup_threshold" value="${store.settings.followup_threshold}"></label>
             <label>"Gone quiet" after this many trading days with no check-in<input class="input" type="number" min="1" name="inactive_days" value="${store.settings.inactive_days}"></label>
           </div>
+          <label class="check"><input type="checkbox" name="news_days_only" ${store.settings.news_days_only !== false ? 'checked' : ''}> Only allow trading on days with high or medium-impact news (days you haven't added news to are NO TRADE)</label>
           <div class="row-end"><button class="btn primary">Save</button></div>
         </form>
       </div>
@@ -831,7 +858,7 @@ export async function viewAdminSetup(root) {
     $('[data-settings]', root).addEventListener('submit', async (e) => {
       e.preventDefault();
       const f = Object.fromEntries(new FormData(e.target));
-      store.settings = await busy(e.submitter, () => api.saveSettings({ followup_threshold: Number(f.followup_threshold), inactive_days: Number(f.inactive_days) }));
+      store.settings = await busy(e.submitter, () => api.saveSettings({ followup_threshold: Number(f.followup_threshold), inactive_days: Number(f.inactive_days), news_days_only: !!f.news_days_only }));
       toast('Saved');
     });
     $('[data-reset]', root)?.addEventListener('click', async () => {

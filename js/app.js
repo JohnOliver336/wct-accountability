@@ -60,7 +60,7 @@ function shell() {
   const nav = isAdmin ? ADMIN_NAV : STUDENT_NAV;
   app.innerHTML = `
     <header class="topbar">
-      <a class="brand" href="#/${isAdmin ? 'admin' : 'today'}"><span class="logo">W</span><span><b>${esc(APP_NAME)}</b><small>Accountability</small></span></a>
+      <a class="brand" href="#/${isAdmin ? 'admin' : 'today'}"><img class="logo" src="assets/logo.png" alt=""><span><b>${esc(APP_NAME)}</b><small>Accountability</small></span></a>
       <nav class="topnav">${nav.map(([k, label]) => `<a href="#/${k}" data-nav="${k}">${label}</a>`).join('')}</nav>
       <a class="avatar" href="#/account" title="My account">${esc(store.me.full_name.split(/\s+/).filter((w) => /^\p{L}/u.test(w)).map((w) => w[0]).slice(0, 2).join('').toUpperCase())}</a>
     </header>
@@ -126,7 +126,7 @@ function authScreen(tab = 'signin', notice = '') {
   app.innerHTML = `
     <div class="auth">
       <div class="auth-card">
-        <div class="brand big"><span class="logo">W</span><span><b>${esc(APP_NAME)}</b><small>${esc(PROGRAM_NAME)}</small></span></div>
+        <div class="brand big"><img class="logo" src="assets/logo.png" alt=""><span><b>${esc(APP_NAME)}</b><small>${esc(PROGRAM_NAME)}</small></span></div>
         <p class="auth-tag">Control the input, not the outcome.</p>
         ${recovering ? `
           <h2>Set a new password</h2>

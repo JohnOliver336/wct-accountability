@@ -3,7 +3,7 @@
 import { addDays, isWeekend, todayNY } from './dates.js';
 import { MISTAKE_TAGS, NO_ENTRY_REASONS, SETUPS, SESSIONS } from './config.js';
 
-const KEY = 'wct-demo-db-v2';
+const KEY = 'wct-demo-db-v3';
 const IMG_PREFIX = 'wct-demo-img:';
 
 // Stand-in for an MT5 screenshot in the seeded data.
@@ -21,6 +21,20 @@ function rng(seed) {
     seed = (seed * 1664525 + 1013904223) % 4294967296;
     return seed / 4294967296;
   };
+}
+
+// Made-up medium-impact news on most weekdays, so the demo calendar has tradeable days.
+// Every 5th weekday is left without news, which makes it a no-trade day.
+function withNews(rows) {
+  const labels = ['ISM Services PMI', 'JOLTS', 'ADP Employment', 'Unemployment Claims 8:30', 'UoM Consumer Sentiment'];
+  const out = [...rows];
+  let n = 0;
+  for (let d = '2026-09-01'; d <= '2026-11-30'; d = addDays(d, 1)) {
+    if (isWeekend(d) || out.some((r) => r.date === d)) continue;
+    if (++n % 5 === 0) continue;
+    out.push({ date: d, is_trading_day: true, news_status: 'NORMAL', news_label: labels[(new Date(d).getUTCDay() + 4) % 5], trade_allowed_after: null });
+  }
+  return out;
 }
 
 function seed() {
@@ -85,7 +99,7 @@ function seed() {
           direction: rand() < 0.5 ? 'Long' : 'Short', setup: SETUPS[Math.floor(rand() * SETUPS.length)],
           session: SESSIONS[2].name, entry_time_ny: `0${7 + Math.floor(rand() * 2)}:${String(Math.floor(rand() * 6) * 10).padStart(2, '0')}`,
           risk_pct: mark === 'X' && rand() < 0.3 ? 2 : 1, result_r: Math.round((rand() * 4 - 1.2) * 10) / 10,
-          ticket: String(50000000 + Math.floor(rand() * 9999999)), mt5_path: 'sample', chart_url: `https://www.tradingview.com/x/sample${Math.floor(rand() * 1e9)}/`,
+          ticket: String(50000000 + Math.floor(rand() * 9999999)), mt5_path: 'sample', chart_path: 'sample', chart_url: `https://www.tradingview.com/x/sample${Math.floor(rand() * 1e9)}/`,
           thoughts: thoughts[Math.floor(rand() * thoughts.length)], created_at: d + 'T14:00:00Z', edited_at: null,
         });
       }
@@ -102,10 +116,10 @@ function seed() {
     }
   });
 
-  return {
+  const db = {
     batches: [b1, b2, b3],
     students,
-    trading_days: [
+    trading_days: withNews([
       { date: '2026-10-01', is_trading_day: true, news_status: 'NO_TRADE', news_label: 'Day before NFP', trade_allowed_after: null },
       { date: '2026-10-02', is_trading_day: true, news_status: 'RESTRICTED', news_label: 'NFP 8:30', trade_allowed_after: '09:00' },
       { date: '2026-10-07', is_trading_day: true, news_status: 'NO_TRADE', news_label: 'FOMC', trade_allowed_after: null },
@@ -115,7 +129,7 @@ function seed() {
       { date: '2026-10-15', is_trading_day: true, news_status: 'RESTRICTED', news_label: 'Core PPI 8:30', trade_allowed_after: '09:00' },
       { date: '2026-10-28', is_trading_day: true, news_status: 'NO_TRADE', news_label: 'FOMC 2PM', trade_allowed_after: null },
       { date: '2026-11-26', is_trading_day: true, news_status: 'NO_TRADE', news_label: 'US holiday · Thanksgiving', trade_allowed_after: null },
-    ],
+    ]),
     check_ins: checkIns,
     trade_posts: trades,
     rulebooks,
@@ -124,8 +138,17 @@ function seed() {
       { id: 'c-nov', name: 'November 30-Day Challenge', description: 'Set your own rules, check in every trading day Monday to Friday, and follow them on every trade. NO ENTRY keeps you in, one X takes you out.', start_date: '2026-11-02', end_date: '2026-11-30', min_checkin_pct: 100, min_rules_pct: 100 },
     ],
     reflections: [],
-    app_settings: { id: 1, followup_threshold: 2, inactive_days: 3 },
+    app_settings: { id: 1, followup_threshold: 2, inactive_days: 3, news_days_only: true },
   };
+  // Seeded students don't trade on no-trade days: turn those into NO ENTRY.
+  const tradeable = new Set(db.trading_days.filter((r) => r.news_status !== 'NO_TRADE' && r.news_label).map((r) => r.date));
+  for (const c of db.check_ins) {
+    if (c.mark !== 'NO_ENTRY' && !tradeable.has(c.date)) {
+      Object.assign(c, { mark: 'NO_ENTRY', no_entry_reason: 'news_day', setup: null, session: null, mistake_tags: [], reason_note: null });
+    }
+  }
+  db.trade_posts = db.trade_posts.filter((t) => tradeable.has(t.date));
+  return db;
 }
 
 export function createDemoApi() {

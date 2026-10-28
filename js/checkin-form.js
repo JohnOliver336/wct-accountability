@@ -55,7 +55,7 @@ export function mountMarkForm(el, { studentId, date, existing, onSaved, onCancel
     const rules = rulebook.personal_rules ?? [];
     return `
       <label class="field-label">Your trades today <span class="req">Required</span></label>
-      <div class="trade-list">${trades.map((t) => tradeCard(t, { actions: true })).join('') || '<p class="muted small">Post every trade you took: MT5 execution screenshot, chart link and your thought process.</p>'}</div>
+      <div class="trade-list">${trades.map((t) => tradeCard(t, { actions: true })).join('') || '<p class="muted small">Post every trade you took, one post per trade: MT5 chart execution and trade history screenshots, plus your thought process.</p>'}</div>
       <button type="button" class="btn ghost block" data-add-trade>+ Post a trade</button>
       ${rules.length ? `
         <label class="field-label">My rules: tick each one you followed</label>
@@ -130,7 +130,7 @@ export function mountMarkForm(el, { studentId, date, existing, onSaved, onCancel
       const t = trades.find((x) => x.id === card.dataset.trade);
       if (!(await confirmBox(`Delete the ${t.symbol} trade?`))) return;
       await api.deleteTrade(t.id);
-      if (t.mt5_path !== 'sample') api.deleteImage(t.mt5_path).catch(() => {});
+      for (const p of [t.mt5_path, t.chart_path]) if (p && p !== 'sample') api.deleteImage(p).catch(() => {});
       trades.splice(trades.indexOf(t), 1);
       return render();
     }

@@ -370,6 +370,7 @@ export async function viewCertificate(root, [challengeId, studentId]) {
     <div class="no-print row-end"><button class="btn primary" onclick="window.print()">Print / Save as PDF</button></div>
     <div class="certificate">
       <div class="cert-inner">
+        <img class="cert-logo" src="assets/logo.png" alt="">
         <div class="eyebrow">${esc(APP_NAME)}</div>
         <h2>Certificate of Completion</h2>
         <p>This certifies that</p>

@@ -6,7 +6,7 @@ export const store = {
   me: null,
   batches: [],
   cal: new Map(),
-  settings: { followup_threshold: 2, inactive_days: 3 },
+  settings: { followup_threshold: 2, inactive_days: 3, news_days_only: true },
   challenges: [],
   today: todayNY(),
 };

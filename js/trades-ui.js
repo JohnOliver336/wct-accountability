@@ -39,7 +39,10 @@ export function tradeCard(t, { actions = false } = {}) {
   const r = Number(t.result_r);
   return `
     <div class="trade-card" data-trade="${t.id}">
-      <img class="trade-thumb" data-path="${esc(t.mt5_path)}" alt="MT5 execution">
+      <div class="trade-thumbs">
+        ${t.chart_path ? `<figure><img class="trade-thumb" data-path="${esc(t.chart_path)}" alt="MT5 chart execution"><figcaption>Chart</figcaption></figure>` : ''}
+        <figure><img class="trade-thumb" data-path="${esc(t.mt5_path)}" alt="MT5 trade history"><figcaption>History</figcaption></figure>
+      </div>
       <div class="trade-body">
         <div class="row-between">
           <strong>${esc(t.symbol)} · ${esc(t.direction)}</strong>
@@ -48,7 +51,7 @@ export function tradeCard(t, { actions = false } = {}) {
         <div class="muted small">${[t.setup, t.session, t.entry_time_ny ? `${fmtTime12(t.entry_time_ny.slice(0, 5))} NY` : null, `risk ${Number(t.risk_pct)}%`, t.ticket ? `#${t.ticket}` : null].filter(Boolean).map(esc).join(' · ')}</div>
         <p class="thoughts">${esc(t.thoughts)}</p>
         <div class="row-gap small">
-          <a href="${esc(t.chart_url)}" target="_blank" rel="noopener">Chart ↗</a>
+          ${t.chart_url ? `<a href="${esc(t.chart_url)}" target="_blank" rel="noopener">TradingView ↗</a>` : ''}
           ${actions ? '<button type="button" class="link" data-edit-trade>Edit</button><button type="button" class="link danger-text" data-del-trade>Delete</button>' : ''}
         </div>
       </div>
@@ -57,7 +60,9 @@ export function tradeCard(t, { actions = false } = {}) {
 
 export function openTradeForm({ studentId, date, trade, onSaved }) {
   const t = trade ?? {};
-  let blob = null;
+  // chart = the trade on the MT5 chart (entry, SL, TP); history = the trade in MT5 History.
+  const blobs = { chart: null, history: null };
+  const saved = { chart: t.chart_path, history: t.mt5_path };
   openModal(`
     <h3>${trade ? 'Edit trade' : 'Post a trade'}</h3>
     <form class="form" data-form>
@@ -79,20 +84,25 @@ export function openTradeForm({ studentId, date, trade, onSaved }) {
         <label>Result (R)<input class="input" type="number" name="result_r" step="0.01" required value="${esc(t.result_r)}" placeholder="2 or -1"></label>
       </div>
       <label>MT5 ticket / position # <span class="muted small">(optional)</span><input class="input" name="ticket" value="${esc(t.ticket)}" inputmode="numeric"></label>
-      <label>MT5 execution screenshot <span class="req">Required</span>
-        <span class="muted small" style="font-weight:400">The trade in your MT5 History, showing time, price and lot. Tap to choose, or paste with Ctrl+V.</span>
-        <input class="input" type="file" accept="image/*" data-file>
+      <label>1. MT5 chart execution screenshot <span class="req">Required</span>
+        <span class="muted small" style="font-weight:400">The MT5 chart showing your entry, stop loss and take profit.</span>
+        <input class="input" type="file" accept="image/*" data-file="chart">
       </label>
-      <img class="preview" data-preview ${t.mt5_path ? `data-path="${esc(t.mt5_path)}"` : 'hidden'} alt="">
-      <label>TradingView chart link <span class="req">Required</span><input class="input" type="url" name="chart_url" required value="${esc(t.chart_url)}" placeholder="https://www.tradingview.com/x/..."></label>
+      <img class="preview" data-preview="chart" ${saved.chart ? `data-path="${esc(saved.chart)}"` : 'hidden'} alt="">
+      <label>2. MT5 trade history screenshot <span class="req">Required</span>
+        <span class="muted small" style="font-weight:400">The trade in your MT5 History tab, showing ticket, time, price, lot and result.</span>
+        <input class="input" type="file" accept="image/*" data-file="history">
+      </label>
+      <img class="preview" data-preview="history" ${saved.history ? `data-path="${esc(saved.history)}"` : 'hidden'} alt="">
+      <p class="hint">Tip: on a computer you can paste a screenshot with Ctrl+V. It fills the first empty slot.</p>
+      <label>TradingView chart link <span class="muted small">(optional)</span><input class="input" type="url" name="chart_url" value="${esc(t.chart_url)}" placeholder="https://www.tradingview.com/x/..."></label>
       <label>Thought process <span class="req">Required</span>
         <textarea class="input" name="thoughts" rows="5" required minlength="40" placeholder="HTF bias and why. What liquidity was taken. What confirmed the entry (MSS, FVG...). Where your stop and target were and why.">${esc(t.thoughts)}</textarea>
       </label>
       <div class="row-end"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">Save trade</button></div>
     </form>`, (dlg) => {
     const form = $('[data-form]', dlg);
-    const preview = $('[data-preview]', dlg);
-    if (t.mt5_path) loadImages(dlg);
+    if (saved.chart || saved.history) loadImages(dlg);
     // Show the saved NY time back in PH time for editing. Manila is 12h ahead of New York
     // during US daylight time and 13h ahead otherwise.
     if (t.entry_time_ny) {
@@ -110,42 +120,50 @@ export function openTradeForm({ studentId, date, trade, onSaved }) {
     form.entry_ph.addEventListener('input', showSession);
     showSession();
 
-    const setFile = async (file) => {
+    const setFile = async (slot, file) => {
       if (!file?.type?.startsWith('image/')) return toast('That is not an image.', 'err');
-      blob = await compress(file);
-      preview.src = URL.createObjectURL(blob);
+      blobs[slot] = await compress(file);
+      const preview = $(`[data-preview="${slot}"]`, dlg);
+      preview.src = URL.createObjectURL(blobs[slot]);
       preview.hidden = false;
     };
-    $('[data-file]', dlg).addEventListener('change', (e) => setFile(e.target.files[0]));
+    dlg.querySelectorAll('[data-file]').forEach((inp) => inp.addEventListener('change', (e) => setFile(inp.dataset.file, e.target.files[0])));
     dlg.addEventListener('paste', (e) => {
       const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'));
-      if (item) { e.preventDefault(); setFile(item.getAsFile()); }
+      if (!item) return;
+      e.preventDefault();
+      const slot = ['chart', 'history'].find((s) => !blobs[s] && !saved[s]) ?? 'history';
+      setFile(slot, item.getAsFile());
     });
+    const upload = async (slot) => {
+      if (!blobs[slot]) return saved[slot];
+      const path = await api.uploadExecution(studentId, blobs[slot]);
+      if (saved[slot] && saved[slot] !== 'sample') api.deleteImage(saved[slot]).catch(() => {});
+      return path;
+    };
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const f = Object.fromEntries(new FormData(form));
-      if (!blob && !t.mt5_path) return toast('Add your MT5 execution screenshot.', 'err');
-      if (!/^https?:\/\//i.test(f.chart_url)) return toast('The chart link must start with https://', 'err');
+      if (!blobs.chart && !saved.chart) return toast('Add your MT5 chart execution screenshot (1).', 'err');
+      if (!blobs.history && !saved.history) return toast('Add your MT5 trade history screenshot (2).', 'err');
+      if (f.chart_url.trim() && !/^https?:\/\//i.test(f.chart_url.trim())) return toast('The TradingView link must start with https://', 'err');
       if (f.thoughts.trim().length < 40) return toast('Write a bit more about your thought process (at least 40 characters).', 'err');
       const ny = phTimeToNY(date, f.entry_ph);
       await busy(e.submitter, async () => {
-        let mt5_path = t.mt5_path;
-        if (blob) {
-          mt5_path = await api.uploadExecution(studentId, blob);
-          if (t.mt5_path && t.mt5_path !== 'sample') api.deleteImage(t.mt5_path).catch(() => {});
-        }
-        const saved = await api.saveTrade({
+        const chart_path = await upload('chart');
+        const mt5_path = await upload('history');
+        const row = await api.saveTrade({
           ...(t.id ? { id: t.id } : {}),
           student_id: studentId, date,
           symbol: f.symbol.trim().toUpperCase(), direction: f.direction,
           setup: f.setup || null, entry_time_ny: ny, session: sessionFor(ny),
           risk_pct: Number(f.risk_pct), result_r: Number(f.result_r),
-          ticket: f.ticket.trim() || null, mt5_path,
-          chart_url: f.chart_url.trim(), thoughts: f.thoughts.trim(),
+          ticket: f.ticket.trim() || null, mt5_path, chart_path,
+          chart_url: f.chart_url.trim() || null, thoughts: f.thoughts.trim(),
         });
         dlg.close();
-        onSaved(saved);
+        onSaved(row);
       });
     });
   });
