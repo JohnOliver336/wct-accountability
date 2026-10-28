@@ -2,7 +2,7 @@
 
 The daily check-in dashboard for the Winner Circle Traders 30-Day Development Program. It replaces the Google Sheet.
 
-- **Students** sign in with their own email and password and set **their own rules** each month: max risk per trade, max trades a day and a week, a daily stop, and up to 8 personal rules. Each trading day they mark ✓ / X / NO ENTRY. A ✓ or X needs a **trade post** for every trade: MT5 execution screenshot, TradingView chart link and their thought process. The site checks each post against their rules and the news calendar, and turns a ✓ into an X automatically if a rule was broken.
+- **Students** sign in with their own email and password and set **their own rules** each month: max risk per trade, max trades a day and a week, a daily stop, and up to 8 personal rules. Each trading day they mark ✓ (followed my rules) or X (broke my rules). Until they do, the day is **No check-in** and counts as 0. Every trade they took needs a **trade post**: MT5 chart and history screenshots plus their thought process. Not trading when there was no setup, or on a no-trade day, is a ✓ with no trades. The site checks each post against their rules and the news calendar, and turns a ✓ into an X automatically if a rule was broken.
 - **You (admin)** are the only one who can add students. You get a **Review** queue to check each day's proof and mark it *Not valid* (it then counts as X), plus the overview, follow-up lists, news calendar, challenge results, CSV export, and **Export for Claude**: one file with everything Claude needs to rank the month and spot logs that look fake.
 
 It's a static website (free on GitHub Pages) with a free Supabase database for logins and data.
@@ -63,19 +63,18 @@ Open the site, choose **First time? Activate**, use `fornillosoliver@gmail.com` 
 
 | Mark | Counts as check-in | Discipline % | Needs |
 |---|---|---|---|
-| ✓ Followed my rules | yes | ✓ | a trade post for each trade (MT5 chart + MT5 history screenshots, thought process), all rules passed |
-| X Broke my rules | yes | ✗ | a trade post for each trade, plus what went wrong |
-| NO ENTRY | yes | not counted | a one-tap reason |
-| blank | no | not counted | – |
+| ✓ Followed my rules | yes | ✓ | a trade post for each trade taken (MT5 chart + history screenshots, thought process), all rules passed. No trades is fine. |
+| X Broke my rules | yes | ✗ | what went wrong, plus a trade post for each trade taken |
+| No check-in (default) | no | not counted (0) | – |
 
 - **Discipline %** = ✓ ÷ (✓ + X). Only days a student traded count. A day you mark *Not valid* counts as X.
 - **Check-in rate** = check-ins (any mark) ÷ trading days *so far*, from the batch start or "Counts from" if later. Today counts only once it's marked.
 - **Leaderboard** ranks by discipline %, then check-in rate, then number of ✓ days. P&L never counts.
-- **Rule streak** = trading days in a row with ✓ or NO ENTRY. An X or a missed day resets it.
+- **Rule streak** = trading days in a row with ✓. An X or a day with no check-in resets it.
 - **Automatic rule check**: each trade post is compared with the student's own rules (risk %, trades a day and a week, daily stop, ticked personal rules) and the news calendar (no-trade days, "trade after" times). Any break turns the day into an X with the reasons listed.
 - **Own rules**: students set them on the My rules page for this month or next. They can change them only on the day they set them. After that they're locked for the month (you can still edit them).
-- **Challenge**: check in every trading day, never get an X, and have your own rules set for the month. NO ENTRY days keep you in.
-- On a **NO TRADE** day "Followed my rules" is turned off: a student either didn't trade (NO ENTRY) or broke the rule (X).
+- **Challenge**: check in every trading day, never get an X, and have your own rules set for the month. Not trading on a no-trade day is a ✓.
+- On a **NO TRADE** day a student who didn't trade taps ✓, since they followed the rule. If they post a trade, the rule check turns it into an X.
 - Students can mark today and up to 3 days back. You can fix any day from the student's page.
 
 ## Checking for fake logs
