@@ -238,6 +238,9 @@ a.card:hover { text-decoration: none; border-color: var(--surface-3); }
 .gc-notrade-fill { background: var(--red-soft); }
 .gc-news-fill { background: var(--amber-soft); }
 .gc-ok-fill { background: var(--green-soft); }
+.gc-src { position: absolute; top: 5px; right: 6px; font-size: 9px; font-weight: 800; letter-spacing: 0.04em; color: var(--brand); background: var(--brand-soft); border-radius: 4px; padding: 1px 4px; }
+.gc-src.static { position: static; }
+.ff-bar { margin-bottom: 12px; }
 .gc-nonews-fill { background: repeating-linear-gradient(135deg, rgba(239, 68, 68, 0.10), rgba(239, 68, 68, 0.10) 6px, transparent 6px, transparent 12px); }
 .gc-nonews-fill .gc-label { color: var(--muted); }
 .sw-ok-fill { background: var(--green-soft); border: 1px solid var(--green); }
