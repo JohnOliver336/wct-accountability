@@ -84,6 +84,12 @@ Open the site, choose **First time? Activate**, use `fornillosoliver@gmail.com` 
 2. **Export for Claude** (Overview): downloads `WCT_Claude_Export_<Month>.json`. Give it to Claude, here in Claude Code or on claude.ai, and say "follow the instructions in this file". You get the discipline ranking, a reliability review with evidence for each student, the month's mistake patterns, and who to message.
    The export holds text only. Screenshots stay private in Supabase, so check those in Review.
 
+## Screenshot storage
+
+MT5 screenshots live in the private Supabase Storage bucket `executions`, one folder per student. Only that student and the admin can open them, through links that expire after an hour. Each one is shrunk to at most 1600px (about 150–300 KB) before upload.
+
+To stay inside the free 1 GB, the `cleanup-screenshots` function (in `supabase/functions`, scheduled by `supabase/005_screenshot_cleanup.sql`) runs every day at 11:00 AM PH and **deletes screenshots of trades older than 60 days**. The trade itself, its numbers, thought process, marks and scores are kept, and the site shows "Screenshots removed after 60 days". To change the period, set the `SCREENSHOT_RETENTION_DAYS` secret on the function and `SCREENSHOT_RETENTION_DAYS` in `js/config.js`.
+
 ## Files
 
 ```
