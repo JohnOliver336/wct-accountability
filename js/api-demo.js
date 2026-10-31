@@ -2,8 +2,9 @@
 // Every name here is made up. Used until SUPABASE_URL is set in config.js.
 import { addDays, isWeekend, todayNY } from './dates.js';
 import { MISTAKE_TAGS, SCREENSHOT_RETENTION_DAYS, SETUPS, SESSIONS } from './config.js';
+import { challengeAwards, inChallenge, summarize } from './metrics.js';
 
-const KEY = 'wct-demo-db-v5';
+const KEY = 'wct-demo-db-v6';
 const IMG_PREFIX = 'wct-demo-img:';
 
 // Stand-in for an MT5 screenshot in the seeded data.
@@ -135,9 +136,10 @@ function seed() {
     trade_posts: trades,
     rulebooks,
     challenges: [
-      { id: 'c-oct', name: 'October 30-Day Challenge', description: 'Set your own rules, check in every trading day Monday to Friday, and follow them on every trade. Not trading on a no-trade day is a ✓, one X takes you out.', start_date: '2026-10-01', end_date: '2026-10-30', min_checkin_pct: 100, min_rules_pct: 100 },
-      { id: 'c-nov', name: 'November 30-Day Challenge', description: 'Set your own rules, check in every trading day Monday to Friday, and follow them on every trade. Not trading on a no-trade day is a ✓, one X takes you out.', start_date: '2026-11-02', end_date: '2026-11-30', min_checkin_pct: 100, min_rules_pct: 100 },
+      { id: 'c-oct', name: 'October 30-Day Challenge', description: 'Batch 1 vs Batch 2. Set your own rules, check in every trading day Monday to Friday, and follow them on every trade.', start_date: '2026-10-01', end_date: '2026-10-30', min_checkin_pct: 100, min_rules_pct: 100, batch_ids: ['b1', 'b2'], award_min_checkin_pct: 80, team_draw_count: 1, team_results: null, finalized_at: null },
+      { id: 'c-nov', name: 'November 30-Day Challenge', description: 'Batch 1 vs Batch 2. Set your own rules, check in every trading day Monday to Friday, and follow them on every trade.', start_date: '2026-11-09', end_date: '2026-11-30', min_checkin_pct: 100, min_rules_pct: 100, batch_ids: ['b1', 'b2'], award_min_checkin_pct: 80, team_draw_count: 1, team_results: null, finalized_at: null },
     ],
+    challenge_winners: [],
     reflections: [],
     app_settings: { id: 1, followup_threshold: 2, inactive_days: 3, news_days_only: true },
   };
@@ -179,6 +181,44 @@ export function createDemoApi() {
     save();
   };
   const ok = (v) => Promise.resolve(clone(v));
+
+  // Demo version of public._finalize_challenge: picks the winners once and stores them.
+  function finalize(ch) {
+    if (!ch || ch.finalized_at) return 0;
+    const today = todayNY();
+    const cal = new Map(db.trading_days.map((r) => [r.date, r]));
+    const marksBy = new Map();
+    for (const c of db.check_ins) {
+      if (!marksBy.has(c.student_id)) marksBy.set(c.student_id, new Map());
+      marksBy.get(c.student_id).set(c.date, c);
+    }
+    const rows = db.students.filter((s) => s.role === 'student' && s.status === 'active' && inChallenge(ch, s)).map((s) => ({
+      s,
+      sum: summarize({ student: s, batch: db.batches.find((b) => b.id === s.batch_id), from: ch.start_date, to: ch.end_date, today, cal, marks: marksBy.get(s.id) ?? new Map() }),
+    }));
+    const { discipline, active, teams } = challengeAwards(ch, rows);
+    const won = new Set();
+    const add = (r, category, details) => {
+      won.add(r.s.id);
+      db.challenge_winners.push({ id: uid(), challenge_id: ch.id, student_id: r.s.id, category, details, prop_firm: null, prop_email: null, claimed_at: null, prize_sent_at: null, created_at: new Date().toISOString() });
+    };
+    const pct = (v) => (v == null ? null : Math.round(v * 1000) / 10);
+    if (discipline[0]) add(discipline[0], 'discipline', { discipline: pct(discipline[0].sum.rulesRate), checkin_rate: pct(discipline[0].sum.checkInRate), checks: discipline[0].sum.check, xs: discipline[0].sum.x, days: discipline[0].sum.elapsed });
+    const act = active.find((r) => !won.has(r.s.id));
+    if (act) add(act, 'active', { checkin_rate: pct(act.sum.checkInRate), checkins: act.sum.checkIns, days: act.sum.elapsed, discipline: pct(act.sum.rulesRate) });
+    ch.team_results = teams.map((t) => ({ batch_id: t.batch_id, batch: db.batches.find((b) => b.id === t.batch_id)?.name, members: t.members, score: pct(t.score) }));
+    if (teams[0]) {
+      const pool = rows.filter((r) => r.s.batch_id === teams[0].batch_id && r.sum.checkInRate >= 0.5 && !won.has(r.s.id));
+      for (let i = 0; i < (ch.team_draw_count ?? 1) && pool.length; i++) {
+        const r = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+        add(r, 'team', { batch_id: teams[0].batch_id, checkin_rate: pct(r.sum.checkInRate), discipline: pct(r.sum.rulesRate), drawn_at: new Date().toISOString() });
+      }
+    }
+    ch.finalized_at = new Date().toISOString();
+    save();
+    return db.challenge_winners.filter((w) => w.challenge_id === ch.id).length;
+  }
+  const finalizeDue = () => db.challenges.filter((c) => !c.finalized_at && c.end_date < todayNY()).forEach(finalize);
 
   return {
     mode: 'demo',
@@ -261,11 +301,42 @@ export function createDemoApi() {
     cohortRoster: () => ok(db.students.filter((s) => s.status === 'active').map(({ id, full_name, batch_id, joined_date, role }) => ({ id, full_name, batch_id, joined_date, role }))),
     cohortMarks: (from, to) => ok(db.check_ins.filter((c) => c.date >= from && c.date <= to).map(({ student_id, date, mark, coach_status }) => ({ student_id, date, mark: coach_status === 'invalid' ? 'X' : mark }))),
 
-    listChallenges: () => ok([...db.challenges].sort((a, b) => a.start_date.localeCompare(b.start_date))),
+    listChallenges() {
+      finalizeDue();
+      return ok([...db.challenges].sort((a, b) => a.start_date.localeCompare(b.start_date)));
+    },
     saveChallenge: async (c) => upsert('challenges', { ...c, id: c.id || uid() }),
     deleteChallenge: async (id) => {
       db.reflections = db.reflections.filter((r) => r.challenge_id !== id);
+      db.challenge_winners = db.challenge_winners.filter((w) => w.challenge_id !== id);
       remove('challenges', 'id', id);
+    },
+
+    // Prize winners: same rules as the database's _finalize_challenge, run in the browser.
+    async listWinners(challengeId) {
+      finalizeDue();
+      const me = db.students.find((s) => session && s.user_id === session.user.id);
+      return clone(db.challenge_winners.filter((w) => w.challenge_id === challengeId && (me?.role === 'admin' || w.student_id === me?.id)));
+    },
+    async winnerList(challengeId) {
+      finalizeDue();
+      const order = ['discipline', 'active', 'team'];
+      return clone(db.challenge_winners.filter((w) => w.challenge_id === challengeId)
+        .sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category))
+        .map((w) => {
+          const s = db.students.find((x) => x.id === w.student_id);
+          return { category: w.category, full_name: s?.full_name, batch_name: db.batches.find((b) => b.id === s?.batch_id)?.name ?? null, details: w.details };
+        }));
+    },
+    async claimPrize(id, prop_firm, prop_email) {
+      const w = db.challenge_winners.find((x) => x.id === id);
+      if (w.prize_sent_at) throw new Error('This prize was already sent. Contact your coach to change it.');
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(prop_email)) throw new Error('Enter a valid email address.');
+      return upsert('challenge_winners', { id, prop_firm, prop_email: prop_email.trim().toLowerCase(), claimed_at: new Date().toISOString() });
+    },
+    setPrizeSent: async (id, sent) => upsert('challenge_winners', { id, prize_sent_at: sent ? new Date().toISOString() : null }),
+    async finalizeChallengeNow(id) {
+      return finalize(db.challenges.find((c) => c.id === id));
     },
 
     listReflections: () => ok([...db.reflections].reverse()),

@@ -1,11 +1,12 @@
 import { api, DEMO } from './api.js';
 import { mountMarkForm } from './checkin-form.js';
+import { AWARDS } from './config.js';
 import { addDays, addMonths, fmtDate, fmtLong, monthEnd, monthStart, nyDateOf, weekStart } from './dates.js';
-import { challengeStatus, daysSilent, effMark, indexMarks, lastCheckIn, rankCompare, streaks, studentStart, summarize, tradingDays } from './metrics.js';
+import { challengeAwards, challengeStatus, daysSilent, effMark, inChallenge, indexMarks, lastCheckIn, rankCompare, streaks, studentStart, summarize, tradingDays } from './metrics.js';
 import { batchName, batchOf, ctx, loadReference, store } from './store.js';
 import { loadImages, tradeCard } from './trades-ui.js';
 import { $, $$, busy, calCell, checkInSummary, confirmBox, dayStatus, esc, legend, monthGrid, monthNav, openModal, pct, progressBar, stat, toast } from './ui.js';
-import { STATE_COPY, rulebookSummary } from './views-student.js';
+import { STATE_COPY, rulebookSummary, standingsHtml } from './views-student.js';
 
 const HISTORY_DAYS = 150;
 
@@ -735,7 +736,11 @@ function challengeForm(c, onDone) {
     name: `${fmtDate(next, { month: 'long' })} 30-Day Challenge`,
     description: 'Set your own rules, check in every trading day Monday to Friday, and follow them on every trade. Not trading on a no-trade day is a ✓, one X takes you out.',
     start_date: firstTrading, end_date: monthEnd(next), min_checkin_pct: 100, min_rules_pct: 100,
+    award_min_checkin_pct: 80, team_draw_count: 1,
+    // Batches that have started their lessons before the challenge begins.
+    batch_ids: store.batches.filter((b) => b.start_date < firstTrading).map((b) => b.id),
   };
+  const locked = !!c?.finalized_at;
   openModal(`
     <h3>${c ? 'Edit challenge' : 'New challenge'}</h3>
     <form class="form" data-form>
@@ -750,13 +755,30 @@ function challengeForm(c, onDone) {
         <label>Rules followed % needed<input class="input" type="number" min="0" max="100" name="min_rules_pct" value="${v.min_rules_pct}"></label>
       </div>
       <p class="hint">100 / 100 means: no missed trading day and no X. Discipline is ✓ ÷ (✓ + X). Not trading on a no-trade day is a ✓. Students must also set their own rules for the month to finish.</p>
+      <div class="field-label">Batches competing <span class="muted small">(team battle; none ticked = every batch)</span></div>
+      <div class="chips">${store.batches.map((b) => `<label class="check chip-check"><input type="checkbox" name="batch" value="${b.id}" ${(v.batch_ids ?? []).includes(b.id) ? 'checked' : ''} ${locked ? 'disabled' : ''}> ${esc(b.name)}</label>`).join('')}</div>
+      <div class="form-row">
+        <label>🎯 Most Disciplined: minimum check-in %<input class="input" type="number" min="0" max="100" name="award_min_checkin_pct" value="${v.award_min_checkin_pct ?? 80}" ${locked ? 'disabled' : ''}></label>
+        <label>🤝 Team draw: winners picked from the winning batch<input class="input" type="number" min="0" max="50" name="team_draw_count" value="${v.team_draw_count ?? 1}" ${locked ? 'disabled' : ''}></label>
+      </div>
+      <p class="hint">${locked ? 'Winners were already picked, so the competition settings are locked.' : 'Winners are picked automatically the day after the challenge ends: 🎯 Most Disciplined, ⚡ Most Active, and a random draw from the winning batch. One prize per person.'}</p>
       <div class="row-end"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">Save</button></div>
     </form>`, (dlg) => {
     $('[data-form]', dlg).addEventListener('submit', async (e) => {
       e.preventDefault();
-      const f = Object.fromEntries(new FormData(e.target));
+      const fd = new FormData(e.target);
+      const f = Object.fromEntries(fd);
       if (f.end_date < f.start_date) return toast('End date is before start date.', 'err');
-      await busy(e.submitter, () => api.saveChallenge({ ...(c ? { id: c.id } : {}), ...f, min_checkin_pct: Number(f.min_checkin_pct), min_rules_pct: Number(f.min_rules_pct) }));
+      const row = {
+        ...(c ? { id: c.id } : {}),
+        name: f.name, description: f.description, start_date: f.start_date, end_date: f.end_date,
+        min_checkin_pct: Number(f.min_checkin_pct), min_rules_pct: Number(f.min_rules_pct),
+      };
+      if (!locked) {
+        const ids = fd.getAll('batch');
+        Object.assign(row, { batch_ids: ids.length ? ids : null, award_min_checkin_pct: Number(f.award_min_checkin_pct), team_draw_count: Number(f.team_draw_count) });
+      }
+      await busy(e.submitter, () => api.saveChallenge(row));
       store.challenges = await api.listChallenges();
       dlg.close();
       onDone();
@@ -774,8 +796,33 @@ export async function viewAdminChallenges(root) {
     let results = '';
     let reflections = [];
     if (ch) {
-      const [students, rows, refl, books] = await Promise.all([api.listStudents(), api.listCheckIns(ch.start_date, ch.end_date), api.listReflections(), api.listAllRulebooks(monthStart(ch.start_date))]);
+      const [students, rows, refl, books, prizeRows, winnerNames] = await Promise.all([
+        api.listStudents(), api.listCheckIns(ch.start_date, ch.end_date), api.listReflections(), api.listAllRulebooks(monthStart(ch.start_date)),
+        api.listWinners(ch.id), ch.finalized_at ? api.winnerList(ch.id) : [],
+      ]);
       const marks = indexMarks(rows);
+      const awards = challengeAwards(ch, students.filter((s) => s.role !== 'admin' && s.status === 'active' && inChallenge(ch, s))
+        .map((s) => ({ s, sum: summarize({ ...ctx(s, marks.get(s.id) ?? new Map()), from: ch.start_date, to: ch.end_date }) })));
+      const claims = `
+        <div class="card">
+          <div class="row-between wrap"><h3>🏆 Winners &amp; prize claims</h3>
+            ${ch.finalized_at ? `<span class="muted small">Picked ${esc(new Date(ch.finalized_at).toLocaleString('en-US', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} PH</span>`
+              : '<button class="btn ghost small" data-finalize>Pick winners now</button>'}</div>
+          ${ch.finalized_at ? `
+            <div class="table-wrap"><table class="table">
+              <thead><tr><th>Award</th><th>Winner</th><th>Result</th><th>Prop firm</th><th>Registered email</th><th>Status</th></tr></thead>
+              <tbody>${prizeRows.map((w) => {
+                const s = students.find((x) => x.id === w.student_id);
+                const d = w.details ?? {};
+                return `<tr><td>${AWARDS[w.category].icon} ${AWARDS[w.category].label}</td>
+                  <td><a href="#/admin/student/${w.student_id}">${esc(s?.full_name ?? '?')}</a><div class="muted small">${esc(batchName(s))}</div></td>
+                  <td class="small">${w.category === 'active' ? `${d.checkin_rate}% check-in` : w.category === 'discipline' ? `${d.discipline}% discipline · ${d.checkin_rate}% check-in` : `drawn · ${d.checkin_rate}% check-in`}</td>
+                  <td>${esc(w.prop_firm ?? '—')}</td>
+                  <td>${w.prop_email ? `<span class="mono">${esc(w.prop_email)}</span>` : '<span class="muted">not claimed yet</span>'}</td>
+                  <td>${w.prize_sent_at ? `<button class="btn small ghost" data-sent="${w.id}" data-val="0">✓ Sent</button>` : w.claimed_at ? `<button class="btn small primary" data-sent="${w.id}" data-val="1">Mark sent</button>` : '<span class="badge tone-amber">Waiting</span>'}</td></tr>`;
+              }).join('') || '<tr><td colspan="6" class="center muted">No one qualified for an award.</td></tr>'}</tbody>
+            </table></div>` : `<p class="muted small">Winners are picked automatically the day after ${esc(fmtDate(ch.end_date))} (1:30 PM PH). Until then, the live leaders are below.</p>`}
+        </div>`;
       reflections = refl.filter((r) => r.challenge_id === ch.id).map((r) => ({ ...r, s: students.find((s) => s.id === r.student_id) }));
       const list = students.filter((s) => s.role !== 'admin' && s.status === 'active')
         .map((s) => ({ s, st: challengeStatus(ch, ctx(s, marks.get(s.id) ?? new Map()), { hasRules: books.some((b) => b.student_id === s.id) }) }))
@@ -784,6 +831,8 @@ export async function viewAdminChallenges(root) {
       list.sort((a, b) => order[a.st.state] - order[b.st.state] || (b.st.discipline ?? 0) - (a.st.discipline ?? 0));
       const count = (k) => list.filter((r) => r.st.state === k).length;
       results = `
+        ${claims}
+        ${standingsHtml(ch, awards, winnerNames, null)}
         <div class="stats">
           ${stat('Still in', count('on_track') + count('needs_rules'), count('needs_rules') ? `${count('needs_rules')} haven't set their rules` : 'on track today', 'tone-green')}
           ${stat('Completed', count('completed'), '', 'tone-gold')}
@@ -820,6 +869,17 @@ export async function viewAdminChallenges(root) {
       render();
     });
     $$('[data-pick]', root).forEach((b) => (b.onclick = () => { selected = b.dataset.pick; render(); }));
+    $('[data-finalize]', root)?.addEventListener('click', async (e) => {
+      if (!(await confirmBox(`Pick the winners of "${ch.name}" now? This uses the standings as of today, runs the team draw once, and can't be redone.`, 'Pick winners'))) return;
+      try { await busy(e.target, () => api.finalizeChallengeNow(ch.id)); } catch { return; }
+      store.challenges = await api.listChallenges();
+      toast('Winners picked. They can now claim their prize.');
+      render();
+    });
+    $$('[data-sent]', root).forEach((b) => b.addEventListener('click', async () => {
+      try { await busy(b, () => api.setPrizeSent(b.dataset.sent, b.dataset.val === '1')); } catch { return; }
+      render();
+    }));
   }
   await render();
 }

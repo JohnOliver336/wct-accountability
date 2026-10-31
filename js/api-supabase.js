@@ -102,6 +102,15 @@ export function createSupabaseApi(url, key) {
     saveChallenge: (c) => run(sb.from('challenges').upsert(c).select().single()),
     deleteChallenge: (id) => run(sb.from('challenges').delete().eq('id', id)),
 
+    // Prize winners. A student sees only their own rows; the admin sees all.
+    listWinners: (challengeId) => run(sb.from('challenge_winners').select('*').eq('challenge_id', challengeId)),
+    winnerList: (challengeId) => run(sb.rpc('challenge_winner_list', { ch_id: challengeId })),
+    claimPrize: (id, prop_firm, prop_email) =>
+      run(sb.from('challenge_winners').update({ prop_firm, prop_email }).eq('id', id).select().single()),
+    setPrizeSent: (id, sent) =>
+      run(sb.from('challenge_winners').update({ prize_sent_at: sent ? new Date().toISOString() : null }).eq('id', id).select().single()),
+    finalizeChallengeNow: (id) => run(sb.rpc('finalize_challenge_now', { ch_id: id })),
+
     listReflections: () => run(sb.from('reflections').select('*').order('created_at', { ascending: false })),
     saveReflection: (r) =>
       run(sb.from('reflections').upsert(r, { onConflict: 'student_id,challenge_id' }).select().single()),

@@ -1,8 +1,8 @@
 import { api } from './api.js';
-import { APP_NAME, EDIT_WINDOW_DAYS, PROGRAM_NAME } from './config.js';
+import { APP_NAME, AWARDS, EDIT_WINDOW_DAYS, PROGRAM_NAME, PROP_FIRMS } from './config.js';
 import { mountMarkForm } from './checkin-form.js';
 import { addDays, addMonths, fmtDate, fmtLong, monthEnd, monthStart, nyDateOf, weekStart } from './dates.js';
-import { activeChallenge, challengeStatus, effMark, indexMarks, isTradingDay, rankCompare, streaks, studentStart, summarize, tradingDays } from './metrics.js';
+import { activeChallenge, challengeAwards, challengeStatus, effMark, inChallenge, indexMarks, isTradingDay, rankCompare, streaks, studentStart, summarize, tradingDays } from './metrics.js';
 import { batchName, batchOf, ctx, store } from './store.js';
 import { loadImages, tradeCard } from './trades-ui.js';
 import { $, busy, calCell, checkInSummary, esc, legend, monthGrid, monthNav, newsBanner, pct, progressBar, stat, toast } from './ui.js';
@@ -280,17 +280,87 @@ export async function viewLeaderboard(root) {
 // CHALLENGE
 // ---------------------------------------------------------------------------
 
+// Live standings for a challenge: team battle plus the two individual awards.
+// Once the challenge is finalized, the official winners replace the live leaders.
+export function standingsHtml(ch, awards, winners, meId) {
+  const teamRows = ch.finalized_at && ch.team_results ? ch.team_results.map((t) => ({ name: t.batch, score: t.score / 100, members: t.members }))
+    : awards.teams.map((t) => ({ name: store.batches.find((b) => b.id === t.batch_id)?.name ?? '—', score: t.score, members: t.members }));
+  const top = teamRows[0]?.score || 1;
+  const list = (rows, key, value) => `<ol class="award-list">${rows.slice(0, 5).map((r) => `
+      <li class="${r.s.id === meId ? 'me' : ''}"><span>${esc(r.s.full_name)} <span class="muted small">${esc(batchName(r.s))}</span></span><b>${pct(r.sum[key])}</b>${value ? `<span class="muted small">${value(r)}</span>` : ''}</li>`).join('') || '<li class="muted">No one yet.</li>'}</ol>`;
+  const myPlace = (rows) => {
+    const i = rows.findIndex((r) => r.s.id === meId);
+    return i >= 5 ? `<p class="muted small">You're #${i + 1}.</p>` : '';
+  };
+  const official = winners.length ? `
+    <div class="card winners-card">
+      <h3>🏆 Official winners</h3>
+      ${winners.map((w) => `<div class="row-between list-row"><span>${AWARDS[w.category].icon} <b>${AWARDS[w.category].label}</b></span><span>${esc(w.full_name)} <span class="muted small">${esc(w.batch_name ?? '')}</span></span></div>`).join('')}
+      <p class="muted small">Winners can claim their prize on this page.</p>
+    </div>` : '';
+  return `
+    ${official}
+    ${teamRows.length > 1 || ch.batch_ids?.length ? `
+      <div class="card">
+        <h3>🤝 Team battle${ch.finalized_at ? ' · final' : ''}</h3>
+        <p class="muted small">Team score = each member's discipline % × check-in rate, averaged across the whole batch. Everyone who doesn't check in pulls the team down. One member of the winning batch is drawn at random for a prize.</p>
+        ${teamRows.map((t, i) => `<div class="team-row"><span><b>${esc(t.name)}</b> <span class="muted small">${t.members} students</span></span>${progressBar(t.score / top, i === 0 ? 'bar-gold' : '')}<b>${(t.score * 100).toFixed(1)}</b></div>`).join('')}
+      </div>` : ''}
+    <div class="two-col">
+      <div class="card"><h3>🎯 Most Disciplined</h3>
+        <p class="muted small">Highest discipline %. Needs at least ${ch.award_min_checkin_pct ?? 80}% check-in rate to qualify.</p>
+        ${list(awards.discipline, 'rulesRate', (r) => `${r.sum.check} ✓ · ${r.sum.x} X`)}${myPlace(awards.discipline)}</div>
+      <div class="card"><h3>⚡ Most Active</h3>
+        <p class="muted small">Highest check-in rate.</p>
+        ${list(awards.active, 'checkInRate', (r) => `${r.sum.checkIns}/${r.sum.elapsed} days`)}${myPlace(awards.active)}</div>
+    </div>`;
+}
+
+function claimCard(w, ch) {
+  const award = AWARDS[w.category];
+  if (w.prize_sent_at) {
+    return `<div class="card prize-card done"><h3>${award.icon} ${award.label}: prize sent ✓</h3><p class="muted">${esc(ch?.name ?? '')} · sent to ${esc(w.prop_email)} (${esc(w.prop_firm)}). Congratulations!</p></div>`;
+  }
+  return `
+    <div class="card prize-card" data-claim="${w.id}">
+      <div class="eyebrow">${esc(ch?.name ?? 'Challenge')}</div>
+      <h3>${award.icon} You won ${award.label}!</h3>
+      ${w.claimed_at ? `<p>Claim sent: <b>${esc(w.prop_firm)}</b> · ${esc(w.prop_email)}. Your coach will send your challenge account. You can still correct it below until it's sent.</p>` : '<p>Claim your prize: a prop firm challenge account. Choose the prop firm and enter the email you registered there.</p>'}
+      <form class="form" data-claim-form>
+        <div class="form-row">
+          <label>Prop firm<select class="input" name="prop_firm" required>
+            <option value="">Choose…</option>${PROP_FIRMS.map((f) => `<option ${w.prop_firm === f ? 'selected' : ''}>${esc(f)}</option>`).join('')}
+          </select></label>
+          <label>Registered email at that prop firm<input class="input" type="email" name="prop_email" required value="${esc(w.prop_email ?? '')}" placeholder="you@email.com"></label>
+        </div>
+        <div class="row-end"><button class="btn primary">${w.claimed_at ? 'Update claim' : '🏆 Claim prize'}</button></div>
+      </form>
+    </div>`;
+}
+
 export async function viewChallenge(root) {
   const me = store.me;
-  const [marks, reflections, rulebooks] = await Promise.all([myMarks(), api.listReflections(), api.listRulebooks(me.id)]);
+  const finalized = store.challenges.filter((x) => x.finalized_at);
+  const [marks, reflections, rulebooks, myWins] = await Promise.all([
+    myMarks(), api.listReflections(), api.listRulebooks(me.id),
+    Promise.all(finalized.map((x) => api.listWinners(x.id))).then((a) => a.flat().filter((w) => w.student_id === me.id)),
+  ]);
   const c = ctx(me, marks);
   const ch = activeChallenge(store.challenges, store.today);
   const hasRules = (x) => ({ hasRules: rulebooks.some((r) => r.month === monthStart(x.start_date)) });
+  const prizes = myWins.map((w) => claimCard(w, store.challenges.find((x) => x.id === w.challenge_id))).join('');
 
   if (!ch) {
-    root.innerHTML = `<section class="hero"><div class="eyebrow">30-Day Challenge</div><h1>No challenge yet</h1><p class="muted">Your coach will open the next one soon.</p></section>`;
+    root.innerHTML = `${prizes}<section class="hero"><div class="eyebrow">30-Day Challenge</div><h1>No challenge yet</h1><p class="muted">Your coach will open the next one soon.</p></section>`;
+    bindClaims();
     return;
   }
+
+  // Standings: everyone in the challenge's batches over the challenge window.
+  const { roster, marks: cohort } = await loadCohort(ch.start_date, ch.end_date);
+  const rows = roster.filter((s) => inChallenge(ch, s)).map((s) => ({ s, sum: summarize({ ...ctx(s, cohort.get(s.id) ?? new Map()), from: ch.start_date, to: ch.end_date }) }));
+  const awards = challengeAwards(ch, rows);
+  const winners = ch.finalized_at ? await api.winnerList(ch.id) : [];
 
   const st = challengeStatus(ch, c, hasRules(ch));
   const days = tradingDays(ch.start_date, ch.end_date, store.cal);
@@ -302,10 +372,11 @@ export async function viewChallenge(root) {
     completed: 'You did it. Every single trading day, rules followed. That is the habit that makes traders consistent.',
     failed: 'This round is over for you, but keep checking in. Your streak and your rate still count, and the next challenge starts fresh.',
     upcoming: 'Get ready. From day one: check in every trading day and follow your rules 100%.',
-    not_eligible: 'You joined after this round. Your first challenge is the next one.',
+    not_eligible: inChallenge(ch, me) ? 'You joined after this round. Your first challenge is the next one.' : 'Your batch isn\'t in this round yet. Keep checking in: you\'ll join the next challenge. You can still follow the race below.',
   }[st.state];
 
   root.innerHTML = `
+    ${prizes}
     <section class="hero"><div class="eyebrow">30-Day Challenge</div><h1>${esc(ch.name)}</h1><p class="muted">${esc(ch.description || '')}</p></section>
     ${challengeCard(ch, st)}
     <div class="card">
@@ -333,6 +404,7 @@ export async function viewChallenge(root) {
           <a class="btn primary" href="#/certificate/${ch.id}">View certificate</a>
         </div>
       </div>` : ''}
+    ${standingsHtml(ch, awards, winners, me.id)}
     ${past.length ? `<div class="card"><h3>Past challenges</h3>${past.map((p) => {
       const ps = challengeStatus(p, c, hasRules(p));
       const [label, tone] = STATE_COPY[ps.state];
@@ -345,6 +417,20 @@ export async function viewChallenge(root) {
     await busy(e.currentTarget, () => api.saveReflection({ student_id: me.id, challenge_id: ch.id, body, can_share: $('[data-share]', root).checked }));
     toast('Saved. Thank you!');
   });
+  bindClaims();
+
+  function bindClaims() {
+    root.querySelectorAll('[data-claim-form]').forEach((form) => form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = Object.fromEntries(new FormData(form));
+      const id = form.closest('[data-claim]').dataset.claim;
+      try {
+        await busy(e.submitter, () => api.claimPrize(id, f.prop_firm, f.prop_email.trim()));
+      } catch { return; } // busy() already showed the error
+      toast('Prize claim sent! Your coach will send your account.');
+      viewChallenge(root);
+    }));
+  }
 }
 
 // ---------------------------------------------------------------------------

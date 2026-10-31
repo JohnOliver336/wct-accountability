@@ -61,6 +61,16 @@ export const NO_ENTRY_REASONS = [
 // How many calendar days back a student may still mark (today plus this many).
 export const EDIT_WINDOW_DAYS = 3;
 
+// Prop firms a challenge winner can choose when claiming a funded-account prize.
+export const PROP_FIRMS = ['Equity Edge', 'Alpha Capital Group (ACG)', 'The5ers', 'Other'];
+
+// Challenge award names, shown to students and in the admin winners table.
+export const AWARDS = {
+  discipline: { icon: '🎯', label: 'Most Disciplined' },
+  active: { icon: '⚡', label: 'Most Active' },
+  team: { icon: '🤝', label: 'Team draw' },
+};
+
 // MT5 screenshots older than this are deleted by the cleanup-screenshots function
 // (keep in sync with SCREENSHOT_RETENTION_DAYS there). Trades and notes stay.
 export const SCREENSHOT_RETENTION_DAYS = 60;
