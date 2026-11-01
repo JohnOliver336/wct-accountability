@@ -352,6 +352,26 @@ function claimCard(w, ch) {
     </div>`;
 }
 
+// Everyone who took part writes a reflection once the last week starts, finished or not.
+function canReflect(ch, st, days) {
+  if (st.state === 'not_eligible' || st.state === 'upcoming') return false;
+  return st.state === 'completed' || store.today >= (days.at(-5) ?? ch.end_date);
+}
+
+function reflectionCard(ch, mine, completed) {
+  return `
+    <div class="card" data-refl="${ch.id}">
+      <h3>${completed ? '🏆 Claim your certificate' : '✍️ Your 30-day reflection'}</h3>
+      <p class="muted">${completed ? 'Before you do, tell' : 'Finished or not, tell'} the next batch what ${esc(ch.name)} taught you.</p>
+      <textarea class="input" rows="4" data-reflection placeholder="What changed for you in these 30 days? What will you do differently?">${esc(mine?.body || '')}</textarea>
+      <label class="check"><input type="checkbox" data-share ${!mine || mine.can_share ? 'checked' : ''}> Coach can share this as a testimonial (untick to keep it private)</label>
+      <div class="row-end">
+        <button class="btn ${completed ? 'ghost' : 'primary'}" data-save-reflection>Save reflection</button>
+        ${completed ? `<a class="btn primary" href="#/certificate/${ch.id}">View certificate</a>` : ''}
+      </div>
+    </div>`;
+}
+
 export async function viewChallenge(root) {
   const me = store.me;
   const finalized = store.challenges.filter((x) => x.finalized_at);
@@ -407,30 +427,28 @@ export async function viewChallenge(root) {
         return `<i class="dot ${cls}" title="${esc(fmtDate(d))}"></i>`;
       }).join('')}</div>
     </div>
-    ${st.state === 'completed' ? `
-      <div class="card">
-        <h3>🏆 Claim your certificate</h3>
-        <p class="muted">Before you do, tell the next batch what these 30 days did for you.</p>
-        <textarea class="input" rows="4" data-reflection placeholder="What changed for you in these 30 days?">${esc(mine?.body || '')}</textarea>
-        <label class="check"><input type="checkbox" data-share ${mine?.can_share ? 'checked' : ''}> Coach can share this as a testimonial</label>
-        <div class="row-end">
-          <button class="btn ghost" data-save-reflection>Save reflection</button>
-          <a class="btn primary" href="#/certificate/${ch.id}">View certificate</a>
-        </div>
-      </div>` : ''}
+    ${canReflect(ch, st, days) ? reflectionCard(ch, mine, st.state === 'completed') : ''}
     ${standingsHtml(ch, awards, winners, me.id)}
     ${past.length ? `<div class="card"><h3>Past challenges</h3>${past.map((p) => {
       const ps = challengeStatus(p, c, hasRules(p));
       const [label, tone] = STATE_COPY[ps.state];
-      return `<div class="row-between list-row"><span>${esc(p.name)}</span><span class="row-gap"><span class="badge ${tone}">${label}</span>${ps.state === 'completed' ? `<a class="small" href="#/certificate/${p.id}">Certificate</a>` : ''}</span></div>`;
+      const took = ps.state !== 'not_eligible' && ps.state !== 'upcoming';
+      const wrote = reflections.some((r) => r.challenge_id === p.id && r.student_id === me.id);
+      return `<div class="row-between list-row"><span>${esc(p.name)}</span><span class="row-gap"><span class="badge ${tone}">${label}</span>${ps.state === 'completed' ? `<a class="small" href="#/certificate/${p.id}">Certificate</a>` : ''}${took ? `<button class="btn ghost small" data-open-refl="${p.id}">${wrote ? 'Edit reflection' : 'Write reflection'}</button>` : ''}</span></div>
+        ${took ? `<div hidden data-refl-wrap="${p.id}">${reflectionCard(p, reflections.find((r) => r.challenge_id === p.id && r.student_id === me.id), false)}</div>` : ''}`;
     }).join('')}</div>` : ''}`;
 
-  $('[data-save-reflection]', root)?.addEventListener('click', async (e) => {
-    const body = $('[data-reflection]', root).value.trim();
+  root.querySelectorAll('[data-open-refl]').forEach((b) => b.addEventListener('click', () => {
+    const wrap = $(`[data-refl-wrap="${b.dataset.openRefl}"]`, root);
+    wrap.hidden = !wrap.hidden;
+  }));
+  root.querySelectorAll('[data-save-reflection]').forEach((btn) => btn.addEventListener('click', async (e) => {
+    const card = btn.closest('[data-refl]');
+    const body = $('[data-reflection]', card).value.trim();
     if (!body) return toast('Write a few lines first.', 'err');
-    await busy(e.currentTarget, () => api.saveReflection({ student_id: me.id, challenge_id: ch.id, body, can_share: $('[data-share]', root).checked }));
+    await busy(e.currentTarget, () => api.saveReflection({ student_id: me.id, challenge_id: card.dataset.refl, body, can_share: $('[data-share]', card).checked }));
     toast('Saved. Thank you!');
-  });
+  }));
   bindClaims();
 
   function bindClaims() {

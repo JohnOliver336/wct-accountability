@@ -871,7 +871,7 @@ export async function viewAdminChallenges(root) {
               <td>${r.st.state === 'completed' ? `<a class="small" href="#/certificate/${ch.id}/${r.s.id}">Certificate</a>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="6" class="center muted">No students in this challenge.</td></tr>'}
           </tbody></table></div>
         <div class="card"><h3>Reflections &amp; testimonials</h3>
-          ${reflections.map((r) => `<div class="note-row"><div class="row-between"><strong>${esc(r.s?.full_name ?? 'Former student')}</strong>${r.can_share ? '<span class="badge tone-green">OK to share</span>' : '<span class="badge tone-muted">Private</span>'}</div><blockquote>${esc(r.body)}</blockquote></div>`).join('') || '<p class="muted">Students who complete the challenge are asked for a short reflection. They\'ll show up here.</p>'}
+          ${reflections.map((r) => `<div class="note-row"><div class="row-between"><strong>${esc(r.s?.full_name ?? 'Former student')} ${list.find((x) => x.s.id === r.student_id)?.st.state === 'completed' ? '<span class="badge tone-gold">Finished</span>' : '<span class="badge tone-red">Out this round</span>'}</strong>${r.can_share ? '<span class="badge tone-green">OK to share</span>' : '<span class="badge tone-muted">Private</span>'}</div><blockquote>${esc(r.body)}</blockquote></div>`).join('') || '<p class="muted">Every student in the challenge is asked for a short reflection in the last week. They\'ll show up here.</p>'}
         </div>`;
     }
 
