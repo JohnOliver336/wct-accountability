@@ -105,8 +105,11 @@ export function createSupabaseApi(url, key) {
     // Prize winners. A student sees only their own rows; the admin sees all.
     listWinners: (challengeId) => run(sb.from('challenge_winners').select('*').eq('challenge_id', challengeId)),
     winnerList: (challengeId) => run(sb.rpc('challenge_winner_list', { ch_id: challengeId })),
-    claimPrize: (id, prop_firm, prop_email) =>
-      run(sb.from('challenge_winners').update({ prop_firm, prop_email }).eq('id', id).select().single()),
+    // The coach picks the prize (prop firm and account size); the winner only gives their registered email.
+    setPrize: (id, fields) =>
+      run(sb.from('challenge_winners').update(fields).eq('id', id).select().single()),
+    claimPrize: (id, prop_email) =>
+      run(sb.from('challenge_winners').update({ prop_email }).eq('id', id).select().single()),
     setPrizeSent: (id, sent) =>
       run(sb.from('challenge_winners').update({ prize_sent_at: sent ? new Date().toISOString() : null }).eq('id', id).select().single()),
     finalizeChallengeNow: (id) => run(sb.rpc('finalize_challenge_now', { ch_id: id })),

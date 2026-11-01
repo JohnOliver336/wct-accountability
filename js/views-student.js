@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { APP_NAME, AWARDS, EDIT_WINDOW_DAYS, PROGRAM_NAME, PROP_FIRMS } from './config.js';
+import { APP_NAME, AWARDS, EDIT_WINDOW_DAYS, PROGRAM_NAME, prizeText } from './config.js';
 import { mountMarkForm } from './checkin-form.js';
 import { addDays, addMonths, fmtDate, fmtLong, monthEnd, monthStart, nyDateOf, weekStart } from './dates.js';
 import { activeChallenge, challengeAwards, challengeStatus, effMark, inChallenge, indexMarks, isTradingDay, rankCompare, streaks, studentStart, summarize, tradingDays } from './metrics.js';
@@ -298,8 +298,15 @@ export function standingsHtml(ch, awards, winners, meId) {
       ${winners.map((w) => `<div class="row-between list-row"><span>${AWARDS[w.category].icon} <b>${AWARDS[w.category].label}</b></span><span>${esc(w.full_name)} <span class="muted small">${esc(w.batch_name ?? '')}</span></span></div>`).join('')}
       <p class="muted small">Winners can claim their prize on this page.</p>
     </div>` : '';
+  const prizes = Object.entries(AWARDS).filter(([cat]) => prizeText(ch.prizes?.[cat]));
+  const prizeCard = prizes.length ? `
+    <div class="card">
+      <h3>🎁 Prizes</h3>
+      ${prizes.map(([cat, a]) => `<div class="row-between list-row"><span>${a.icon} <b>${a.label}</b></span><span>${esc(prizeText(ch.prizes[cat]))} account</span></div>`).join('')}
+    </div>` : '';
   return `
     ${official}
+    ${prizeCard}
     ${teamRows.length > 1 || ch.batch_ids?.length ? `
       <div class="card">
         <h3>🤝 Team battle${ch.finalized_at ? ' · final' : ''}</h3>
@@ -319,19 +326,26 @@ export function standingsHtml(ch, awards, winners, meId) {
 function claimCard(w, ch) {
   const award = AWARDS[w.category];
   if (w.prize_sent_at) {
-    return `<div class="card prize-card done"><h3>${award.icon} ${award.label}: prize sent ✓</h3><p class="muted">${esc(ch?.name ?? '')} · sent to ${esc(w.prop_email)} (${esc(w.prop_firm)}). Congratulations!</p></div>`;
+    return `<div class="card prize-card done"><h3>${award.icon} ${award.label}: prize sent ✓</h3><p class="muted">${esc(ch?.name ?? '')} · ${esc(prizeText(w))} account sent to ${esc(w.prop_email)}. Congratulations!</p></div>`;
   }
+  if (!w.prop_firm || !w.account_size) {
+    return `
+    <div class="card prize-card">
+      <div class="eyebrow">${esc(ch?.name ?? 'Challenge')}</div>
+      <h3>${award.icon} You won ${award.label}!</h3>
+      <p>Your prize is a prop firm challenge account. Your coach is choosing your prize. Check back here soon to claim it.</p>
+    </div>`;
+  }
+  const prize = esc(prizeText(w));
   return `
     <div class="card prize-card" data-claim="${w.id}">
       <div class="eyebrow">${esc(ch?.name ?? 'Challenge')}</div>
       <h3>${award.icon} You won ${award.label}!</h3>
-      ${w.claimed_at ? `<p>Claim sent: <b>${esc(w.prop_firm)}</b> · ${esc(w.prop_email)}. Your coach will send your challenge account. You can still correct it below until it's sent.</p>` : '<p>Claim your prize: a prop firm challenge account. Choose the prop firm and enter the email you registered there.</p>'}
+      ${w.claimed_at ? `<p>Claim sent: <b>${prize}</b> · ${esc(w.prop_email)}. Your coach will send your challenge account. You can still correct your email below until it's sent.</p>` : `<p>Your prize: a <b>${prize}</b> challenge account. Register at ${esc(w.prop_firm)}, then enter the email you used there.</p>`}
       <form class="form" data-claim-form>
         <div class="form-row">
-          <label>Prop firm<select class="input" name="prop_firm" required>
-            <option value="">Choose…</option>${PROP_FIRMS.map((f) => `<option ${w.prop_firm === f ? 'selected' : ''}>${esc(f)}</option>`).join('')}
-          </select></label>
-          <label>Registered email at that prop firm<input class="input" type="email" name="prop_email" required value="${esc(w.prop_email ?? '')}" placeholder="you@email.com"></label>
+          <label>Prize<input class="input" value="${prize}" disabled></label>
+          <label>Registered email at ${esc(w.prop_firm)}<input class="input" type="email" name="prop_email" required value="${esc(w.prop_email ?? '')}" placeholder="you@email.com"></label>
         </div>
         <div class="row-end"><button class="btn primary">${w.claimed_at ? 'Update claim' : '🏆 Claim prize'}</button></div>
       </form>
@@ -425,7 +439,7 @@ export async function viewChallenge(root) {
       const f = Object.fromEntries(new FormData(form));
       const id = form.closest('[data-claim]').dataset.claim;
       try {
-        await busy(e.submitter, () => api.claimPrize(id, f.prop_firm, f.prop_email.trim()));
+        await busy(e.submitter, () => api.claimPrize(id, f.prop_email.trim()));
       } catch { return; } // busy() already showed the error
       toast('Prize claim sent! Your coach will send your account.');
       viewChallenge(root);

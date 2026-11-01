@@ -1,6 +1,6 @@
 import { api, DEMO } from './api.js';
 import { mountMarkForm } from './checkin-form.js';
-import { AWARDS } from './config.js';
+import { ACCOUNT_SIZES, ACCOUNT_TYPES, AWARDS, PROP_FIRMS } from './config.js';
 import { addDays, addMonths, fmtDate, fmtLong, monthEnd, monthStart, nyDateOf, weekStart } from './dates.js';
 import { challengeAwards, challengeStatus, daysSilent, effMark, inChallenge, indexMarks, lastCheckIn, rankCompare, streaks, studentStart, summarize, tradingDays } from './metrics.js';
 import { batchName, batchOf, ctx, loadReference, store } from './store.js';
@@ -762,6 +762,13 @@ function challengeForm(c, onDone) {
         <label>🤝 Team draw: winners picked from the winning batch<input class="input" type="number" min="0" max="50" name="team_draw_count" value="${v.team_draw_count ?? 1}" ${locked ? 'disabled' : ''}></label>
       </div>
       <p class="hint">${locked ? 'Winners were already picked, so the competition settings are locked.' : 'Winners are picked automatically the day after the challenge ends: 🎯 Most Disciplined, ⚡ Most Active, and a random draw from the winning batch. One prize per person.'}</p>
+      <div class="field-label">Prizes <span class="muted small">(shown to students during the challenge; each winner gets the prize for their award)</span></div>
+      ${Object.entries(AWARDS).map(([cat, a]) => `
+        <div class="form-row">
+          <label>${a.icon} ${a.label}: prop firm${prizeSelect(`${cat}.prop_firm`, PROP_FIRMS, v.prizes?.[cat]?.prop_firm)}</label>
+          <label>Account size${prizeSelect(`${cat}.account_size`, ACCOUNT_SIZES, v.prizes?.[cat]?.account_size)}</label>
+          <label>Account type${prizeSelect(`${cat}.account_type`, ACCOUNT_TYPES, v.prizes?.[cat]?.account_type)}</label>
+        </div>`).join('')}
       <div class="row-end"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">Save</button></div>
     </form>`, (dlg) => {
     $('[data-form]', dlg).addEventListener('submit', async (e) => {
@@ -773,6 +780,9 @@ function challengeForm(c, onDone) {
         ...(c ? { id: c.id } : {}),
         name: f.name, description: f.description, start_date: f.start_date, end_date: f.end_date,
         min_checkin_pct: Number(f.min_checkin_pct), min_rules_pct: Number(f.min_rules_pct),
+        prizes: Object.fromEntries(Object.keys(AWARDS).map((cat) => [cat, {
+          prop_firm: f[`${cat}.prop_firm`] || null, account_size: f[`${cat}.account_size`] || null, account_type: f[`${cat}.account_type`] || null,
+        }])),
       };
       if (!locked) {
         const ids = fd.getAll('batch');
@@ -784,6 +794,17 @@ function challengeForm(c, onDone) {
       onDone();
     });
   });
+}
+
+function prizeSelect(name, options, value) {
+  return `<select class="input" name="${name}"><option value="">Choose…</option>${options.map((o) => `<option ${value === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+}
+
+// The coach picks each part of a winner's prize; locked once the prize is sent.
+function prizePick(w, field, options) {
+  if (w.prize_sent_at) return esc(w[field] ?? '—');
+  return `<select class="input small" data-prize="${w.id}" data-field="${field}">
+    <option value="">${field === 'account_type' ? 'Type…' : 'Choose…'}</option>${options.map((o) => `<option ${w[field] === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
 }
 
 export async function viewAdminChallenges(root) {
@@ -810,17 +831,19 @@ export async function viewAdminChallenges(root) {
               : '<button class="btn ghost small" data-finalize>Pick winners now</button>'}</div>
           ${ch.finalized_at ? `
             <div class="table-wrap"><table class="table">
-              <thead><tr><th>Award</th><th>Winner</th><th>Result</th><th>Prop firm</th><th>Registered email</th><th>Status</th></tr></thead>
+              <thead><tr><th>Award</th><th>Winner</th><th>Result</th><th>Prop firm</th><th>Account size</th><th>Account type</th><th>Registered email</th><th>Status</th></tr></thead>
               <tbody>${prizeRows.map((w) => {
                 const s = students.find((x) => x.id === w.student_id);
                 const d = w.details ?? {};
                 return `<tr><td>${AWARDS[w.category].icon} ${AWARDS[w.category].label}</td>
                   <td><a href="#/admin/student/${w.student_id}">${esc(s?.full_name ?? '?')}</a><div class="muted small">${esc(batchName(s))}</div></td>
                   <td class="small">${w.category === 'active' ? `${d.checkin_rate}% check-in` : w.category === 'discipline' ? `${d.discipline}% discipline · ${d.checkin_rate}% check-in` : `drawn · ${d.checkin_rate}% check-in`}</td>
-                  <td>${esc(w.prop_firm ?? '—')}</td>
+                  <td>${prizePick(w, 'prop_firm', PROP_FIRMS)}</td>
+                  <td>${prizePick(w, 'account_size', ACCOUNT_SIZES)}</td>
+                  <td>${prizePick(w, 'account_type', ACCOUNT_TYPES)}</td>
                   <td>${w.prop_email ? `<span class="mono">${esc(w.prop_email)}</span>` : '<span class="muted">not claimed yet</span>'}</td>
-                  <td>${w.prize_sent_at ? `<button class="btn small ghost" data-sent="${w.id}" data-val="0">✓ Sent</button>` : w.claimed_at ? `<button class="btn small primary" data-sent="${w.id}" data-val="1">Mark sent</button>` : '<span class="badge tone-amber">Waiting</span>'}</td></tr>`;
-              }).join('') || '<tr><td colspan="6" class="center muted">No one qualified for an award.</td></tr>'}</tbody>
+                  <td>${w.prize_sent_at ? `<button class="btn small ghost" data-sent="${w.id}" data-val="0">✓ Sent</button>` : w.claimed_at ? `<button class="btn small primary" data-sent="${w.id}" data-val="1">Mark sent</button>` : w.prop_firm && w.account_size ? '<span class="badge tone-amber">Waiting for email</span>' : '<span class="badge tone-muted">Choose prize</span>'}</td></tr>`;
+              }).join('') || '<tr><td colspan="8" class="center muted">No one qualified for an award.</td></tr>'}</tbody>
             </table></div>` : `<p class="muted small">Winners are picked automatically the day after ${esc(fmtDate(ch.end_date))} (1:30 PM PH). Until then, the live leaders are below.</p>`}
         </div>`;
       reflections = refl.filter((r) => r.challenge_id === ch.id).map((r) => ({ ...r, s: students.find((s) => s.id === r.student_id) }));
@@ -876,6 +899,11 @@ export async function viewAdminChallenges(root) {
       toast('Winners picked. They can now claim their prize.');
       render();
     });
+    $$('[data-prize]', root).forEach((sel) => sel.addEventListener('change', async () => {
+      sel.disabled = true;
+      try { await api.setPrize(sel.dataset.prize, { [sel.dataset.field]: sel.value || null }); } catch (e) { toast(e.message || 'Something went wrong', 'err'); }
+      render();
+    }));
     $$('[data-sent]', root).forEach((b) => b.addEventListener('click', async () => {
       try { await busy(b, () => api.setPrizeSent(b.dataset.sent, b.dataset.val === '1')); } catch { return; }
       render();

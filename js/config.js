@@ -61,8 +61,13 @@ export const NO_ENTRY_REASONS = [
 // How many calendar days back a student may still mark (today plus this many).
 export const EDIT_WINDOW_DAYS = 3;
 
-// Prop firms a challenge winner can choose when claiming a funded-account prize.
+// Prize options the coach picks for each challenge winner (students can't choose).
 export const PROP_FIRMS = ['Equity Edge', 'Alpha Capital Group (ACG)', 'The5ers', 'Other'];
+export const ACCOUNT_SIZES = ['$5K', '$10K', '$25K', '$50K', '$100K'];
+export const ACCOUNT_TYPES = ['1-Step', '2-Step', 'Instant Funding'];
+
+// "$10K The5ers 2-Step" from a prize ({ prop_firm, account_size, account_type }); '' until firm and size are set.
+export const prizeText = (p) => (p?.prop_firm && p?.account_size ? [p.account_size, p.prop_firm, p.account_type].filter(Boolean).join(' ') : '');
 
 // Challenge award names, shown to students and in the admin winners table.
 export const AWARDS = {

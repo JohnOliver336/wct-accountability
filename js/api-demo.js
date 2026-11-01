@@ -200,7 +200,7 @@ export function createDemoApi() {
     const won = new Set();
     const add = (r, category, details) => {
       won.add(r.s.id);
-      db.challenge_winners.push({ id: uid(), challenge_id: ch.id, student_id: r.s.id, category, details, prop_firm: null, prop_email: null, claimed_at: null, prize_sent_at: null, created_at: new Date().toISOString() });
+      db.challenge_winners.push({ id: uid(), challenge_id: ch.id, student_id: r.s.id, category, details, prop_firm: null, account_size: null, account_type: null, ...(ch.prizes?.[category] ?? {}), prop_email: null, claimed_at: null, prize_sent_at: null, created_at: new Date().toISOString() });
     };
     const pct = (v) => (v == null ? null : Math.round(v * 1000) / 10);
     if (discipline[0]) add(discipline[0], 'discipline', { discipline: pct(discipline[0].sum.rulesRate), checkin_rate: pct(discipline[0].sum.checkInRate), checks: discipline[0].sum.check, xs: discipline[0].sum.x, days: discipline[0].sum.elapsed });
@@ -328,11 +328,13 @@ export function createDemoApi() {
           return { category: w.category, full_name: s?.full_name, batch_name: db.batches.find((b) => b.id === s?.batch_id)?.name ?? null, details: w.details };
         }));
     },
-    async claimPrize(id, prop_firm, prop_email) {
+    setPrize: async (id, fields) => upsert('challenge_winners', { id, ...fields }),
+    async claimPrize(id, prop_email) {
       const w = db.challenge_winners.find((x) => x.id === id);
       if (w.prize_sent_at) throw new Error('This prize was already sent. Contact your coach to change it.');
+      if (!w.prop_firm || !w.account_size) throw new Error('Your coach has not chosen your prize yet.');
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(prop_email)) throw new Error('Enter a valid email address.');
-      return upsert('challenge_winners', { id, prop_firm, prop_email: prop_email.trim().toLowerCase(), claimed_at: new Date().toISOString() });
+      return upsert('challenge_winners', { id, prop_email: prop_email.trim().toLowerCase(), claimed_at: new Date().toISOString() });
     },
     setPrizeSent: async (id, sent) => upsert('challenge_winners', { id, prize_sent_at: sent ? new Date().toISOString() : null }),
     async finalizeChallengeNow(id) {
