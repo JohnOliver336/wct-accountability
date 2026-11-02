@@ -113,7 +113,70 @@ Please produce:
 4. FOLLOW-UPS: who to message this week (gone quiet, repeated X, high concern), each with a one-line suggested message.
 Keep it short, use tables where it helps. Answer in English.`;
 
+const PROOF_PROMPT = `\n\nTHIS IS A PROOF PACK. Each trade's "screenshot_files" points to its MT5 screenshots inside the screenshots/ folder of this ZIP. Open every screenshot and add:
+5. PROOF CHECK: for each trade, compare the screenshots with what the student logged: ticket number, symbol, direction, entry time (screenshots may show broker server time, not New York time), result and date. Flag: numbers that don't match, the same image (or the same trade) reused on different days or by different students, a different account number or name than the student's other screenshots, more trades in the history than were logged, signs of editing (mismatched fonts, misaligned digits, blurred areas), demo-account labels. List flagged trades per student with the file name and what doesn't match, rate each low / medium / high, and say which students' proof looks consistent. Screenshots can be faked, so present evidence, not verdicts, and suggest asking high-concern students for an MT5 investor password or broker statement.`;
+
+const zipName = (s) => s.replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '');
+
 async function exportForClaude(month, students, marks) {
+  const payload = await auditPayload(month, students, marks);
+  const blob = new Blob([JSON.stringify(payload, (k, v) => (k === '_t' ? undefined : v), 2)], { type: 'application/json' });
+  download(blob, `WCT_Claude_Export_${fmtDate(month, { month: 'long', year: 'numeric' }).replace(' ', '_')}.json`);
+  toast('Downloaded. Give this file to Claude and ask it to follow the instructions inside.');
+}
+
+function download(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// Proof pack: the Claude export plus every MT5 screenshot of the month, as one ZIP.
+async function exportProofPack(month, students, marks, onProgress) {
+  const { default: JSZip } = await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm');
+  const payload = await auditPayload(month, students, marks);
+  payload.instructions_for_claude += PROOF_PROMPT;
+  const zip = new JSZip();
+  const jobs = [];
+  for (const s of payload.students) {
+    for (const d of s.days) {
+      d.trades.forEach((tr, i) => {
+        const t = tr._t;
+        tr.screenshot_files = {};
+        if (t.images_removed_at) return;
+        const base = `screenshots/${zipName(s.name)}/${d.date}_${i + 1}_${zipName(t.symbol || 'trade')}${t.ticket ? `_${zipName(String(t.ticket))}` : ''}`;
+        for (const [kind, path] of [['chart', t.chart_path], ['history', t.mt5_path]]) {
+          if (path) jobs.push({ tr, kind, path, base });
+        }
+      });
+    }
+  }
+  let done = 0, failed = 0;
+  const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg' };
+  const worker = async () => {
+    for (let job = jobs.shift(); job; job = jobs.shift()) {
+      try {
+        const blob = await (await fetch(await api.imageUrl(job.path))).blob();
+        const file = `${job.base}_${job.kind}.${ext[blob.type] ?? 'png'}`;
+        zip.file(file, blob);
+        job.tr.screenshot_files[job.kind] = file;
+      } catch { failed++; job.tr.screenshot_files[job.kind] = 'could not download'; }
+      onProgress(++done);
+    }
+  };
+  const total = jobs.length;
+  onProgress(0, total);
+  await Promise.all(Array.from({ length: 6 }, worker));
+  zip.file('data.json', JSON.stringify(payload, (k, v) => (k === '_t' ? undefined : v), 2));
+  zip.file('README.txt', `WCT proof pack, ${payload.month}.\nGive this ZIP (or the unzipped folder) to Claude and ask it to follow the instructions in data.json.\nContains student trade screenshots: keep it private, never upload it to GitHub.\n`);
+  const blob = await zip.generateAsync({ type: 'blob' });
+  download(blob, `WCT_Proof_Pack_${fmtDate(month, { month: 'long', year: 'numeric' }).replace(' ', '_')}.zip`);
+  toast(`Proof pack downloaded: ${total - failed} screenshots${failed ? `, ${failed} could not be downloaded` : ''}. Keep it private.`);
+}
+
+async function auditPayload(month, students, marks) {
   const from = month, to = monthEnd(month);
   const [trades, books] = await Promise.all([api.listAllTrades(addDays(from, -60), to), api.listAllRulebooks(month)]);
   const checkIns = students.flatMap((s) => [...(marks.get(s.id)?.values() ?? [])]).filter((c) => c.date >= addDays(from, -60) && c.date <= to);
@@ -158,7 +221,7 @@ async function exportForClaude(month, students, marks) {
           trades: trades.filter((t) => t.student_id === s.id && t.date === d).map((t) => ({
             symbol: t.symbol, direction: t.direction, entry_model: t.setup, session: t.session,
             entry_time_ny: t.entry_time_ny?.slice(0, 5) ?? null, risk_pct: Number(t.risk_pct), result_r: Number(t.result_r),
-            mt5_ticket: t.ticket, tradingview_url: t.chart_url, has_mt5_chart_screenshot: !!t.chart_path, has_mt5_history_screenshot: !!t.mt5_path, screenshots_deleted_after_60_days: !!t.images_removed_at, thoughts: t.thoughts, posted_at: t.created_at,
+            mt5_ticket: t.ticket, tradingview_url: t.chart_url, has_mt5_chart_screenshot: !!t.chart_path, has_mt5_history_screenshot: !!t.mt5_path, screenshots_deleted_after_60_days: !!t.images_removed_at, thoughts: t.thoughts, posted_at: t.created_at, _t: t,
           })),
         };
       }),
@@ -168,7 +231,7 @@ async function exportForClaude(month, students, marks) {
     .map((r, i) => ({ rank: i + 1, name: r.name, batch: r.batch, discipline_pct: r.summary.discipline_pct, check_in_rate: r.summary.check_in_rate, check: r.summary.check, x: r.summary.x }));
   rows.forEach((r) => delete r._sum);
 
-  const payload = {
+  return {
     instructions_for_claude: CLAUDE_PROMPT,
     month: fmtDate(month, { month: 'long', year: 'numeric' }),
     generated_at: new Date().toISOString(),
@@ -176,13 +239,6 @@ async function exportForClaude(month, students, marks) {
     ranking,
     students: rows,
   };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `WCT_Claude_Export_${fmtDate(month, { month: 'long', year: 'numeric' }).replace(' ', '_')}.json`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-  toast('Downloaded. Give this file to Claude and ask it to follow the instructions inside.');
 }
 
 // ---------------------------------------------------------------------------
@@ -345,7 +401,7 @@ export async function viewAdminOverview(root) {
     root.innerHTML = `
       <section class="hero row-between wrap">
         <div><div class="eyebrow">Admin</div><h1>Overview</h1></div>
-        <div class="row-gap">${batchFilter(batch)}<button class="btn ghost" data-export>Export CSV</button><button class="btn primary" data-export-ai>Export for Claude</button></div>
+        <div class="row-gap">${batchFilter(batch)}<button class="btn ghost" data-export>Export CSV</button><button class="btn ghost" data-proof-pack>Download proof pack</button><button class="btn primary" data-export-ai>Export for Claude</button></div>
       </section>
       ${monthNav(month)}
       <div class="stats">
@@ -378,6 +434,19 @@ export async function viewAdminOverview(root) {
 
     $('[data-export]', root).onclick = () => exportCsv(month, active.sort((a, b) => batchName(a).localeCompare(batchName(b)) || a.full_name.localeCompare(b.full_name)), marks);
     $('[data-export-ai]', root).onclick = (e) => busy(e.currentTarget, () => exportForClaude(month, active, marks));
+    $('[data-proof-pack]', root).onclick = async (e) => {
+      const btn = e.currentTarget;
+      let total = 0;
+      btn.disabled = true;
+      try {
+        await exportProofPack(month, active, marks, (n, t) => { if (t != null) total = t; btn.textContent = `Screenshots ${n}/${total}…`; });
+      } catch (err) {
+        toast(err.message || 'Could not build the proof pack', 'err');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Download proof pack';
+      }
+    };
     $('[data-batch]', root).onchange = (e) => { batch = e.target.value; render(); };
   }
 
