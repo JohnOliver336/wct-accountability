@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { APP_NAME, AWARDS, EDIT_WINDOW_DAYS, PROGRAM_NAME, prizeText } from './config.js';
+import { APP_NAME, AWARDS, EDIT_WINDOW_DAYS, PROGRAM_NAME, prizeFor, prizeText, prizeTiers, sortWinners, winnerCount } from './config.js';
 import { mountMarkForm } from './checkin-form.js';
 import { addDays, addMonths, fmtDate, fmtLong, monthEnd, monthStart, nyDateOf, weekStart } from './dates.js';
 import { activeChallenge, challengeAwards, challengeStatus, effMark, inChallenge, indexMarks, isTradingDay, rankCompare, streaks, studentStart, summarize, tradingDays } from './metrics.js';
@@ -286,38 +286,51 @@ export function standingsHtml(ch, awards, winners, meId) {
   const teamRows = ch.finalized_at && ch.team_results ? ch.team_results.map((t) => ({ name: t.batch, score: t.score / 100, members: t.members }))
     : awards.teams.map((t) => ({ name: store.batches.find((b) => b.id === t.batch_id)?.name ?? '—', score: t.score, members: t.members }));
   const top = teamRows[0]?.score || 1;
-  const list = (rows, key, value) => `<ol class="award-list">${rows.slice(0, 5).map((r) => `
+  const shown = Math.max(5, winnerCount(ch, 'discipline'), winnerCount(ch, 'active'));
+  const list = (rows, key, value) => `<ol class="award-list">${rows.slice(0, shown).map((r) => `
       <li class="${r.s.id === meId ? 'me' : ''}"><span>${esc(r.s.full_name)} <span class="muted small">${esc(batchName(r.s))}</span></span><b>${pct(r.sum[key])}</b>${value ? `<span class="muted small">${value(r)}</span>` : ''}</li>`).join('') || '<li class="muted">No one yet.</li>'}</ol>`;
   const myPlace = (rows) => {
     const i = rows.findIndex((r) => r.s.id === meId);
-    return i >= 5 ? `<p class="muted small">You're #${i + 1}.</p>` : '';
+    return i >= shown ? `<p class="muted small">You're #${i + 1}.</p>` : '';
   };
+  // The prize this winner actually got (the coach may have changed it), else the announced one.
+  const wonPrize = (w) => prizeText(w.prop_firm ? w : prizeFor(ch, w.category, w.details?.place ?? 1));
   const official = winners.length ? `
     <div class="card winners-card">
       <h3>🏆 Official winners</h3>
-      ${winners.map((w) => `<div class="row-between list-row"><span>${AWARDS[w.category].icon} <b>${AWARDS[w.category].label}</b></span><span>${esc(w.full_name)} <span class="muted small">${esc(w.batch_name ?? '')}</span></span></div>`).join('')}
+      ${sortWinners(winners).map((w) => `<div class="row-between list-row"><span>${AWARDS[w.category].icon} <b>${AWARDS[w.category].label}</b>${w.details?.place ? ` <span class="muted small">#${w.details.place}</span>` : ''}</span><span>${esc(w.full_name)} <span class="muted small">${esc(w.batch_name ?? '')}${wonPrize(w) ? ` · ${esc(wonPrize(w))}` : ''}</span></span></div>`).join('')}
       <p class="muted small">Winners can claim their prize on this page.</p>
     </div>` : '';
-  const prizes = Object.entries(AWARDS).filter(([cat]) => prizeText(ch.prizes?.[cat]));
-  const prizeCard = prizes.length ? `
-    <div class="card">
-      <h3>🎁 Prizes</h3>
-      ${prizes.map(([cat, a]) => `<div class="row-between list-row"><span>${a.icon} <b>${a.label}</b></span><span>${esc(prizeText(ch.prizes[cat]))} account</span></div>`).join('')}
-    </div>` : '';
+  // The prize each award wins, shown right where students race for it.
+  // e.g. "Top 3: $10K ACG 2-Step · Next 2: $5K The5ers 2-Step"
+  const tierText = (cat) => {
+    const tiers = prizeTiers(ch, cat).filter((t) => prizeText(t));
+    if (cat === 'team') return tiers.map((t) => `${t.count > 1 ? `${t.count} × ` : ''}${esc(prizeText(t))}`).join(' + ');
+    return tiers.map((t, i) => `${i === 0 ? (t.count > 1 ? `Top ${t.count}` : '#1') : `Next ${t.count}`}: ${esc(prizeText(t))}`).join(' · ');
+  };
+  const prize = (cat) => {
+    const p = tierText(cat);
+    return p ? `<div class="prize-tag">🎁 ${p} account${winnerCount(ch, cat) > 1 ? 's' : ''}</div>` : '';
+  };
+  const draws = winnerCount(ch, 'team');
+  const teamPrize = tierText('team');
+  const leading = teamRows[0]?.score > 0;
   return `
     ${official}
-    ${prizeCard}
     ${teamRows.length > 1 || ch.batch_ids?.length ? `
       <div class="card">
         <h3>🤝 Team battle${ch.finalized_at ? ' · final' : ''}</h3>
-        <p class="muted small">Team score = each member's discipline % × check-in rate, averaged across the whole batch. Everyone who doesn't check in pulls the team down. One member of the winning batch is drawn at random for a prize.</p>
-        ${teamRows.map((t, i) => `<div class="team-row"><span><b>${esc(t.name)}</b> <span class="muted small">${t.members} students</span></span>${progressBar(t.score / top, i === 0 ? 'bar-gold' : '')}<b>${(t.score * 100).toFixed(1)}</b></div>`).join('')}
+        <p class="muted small">Team score = each member's discipline % × check-in rate, averaged across the whole batch. Everyone who doesn't check in pulls the team down. ${draws > 1 ? `${draws} members` : 'One member'} of the winning batch ${draws > 1 ? 'are' : 'is'} drawn at random for a prize.</p>
+        ${teamPrize && !leading ? `<div class="prize-tag">🎁 ${teamPrize} for the leading batch</div>` : ''}
+        ${teamRows.map((t, i) => `<div class="team-row"><span><b>${esc(t.name)}</b> <span class="muted small">${t.members} students</span>${teamPrize && leading && i === 0 ? `<span class="prize-tag inline">🎁 ${teamPrize}</span>` : ''}</span>${progressBar(t.score / top, i === 0 ? 'bar-gold' : '')}<b>${(t.score * 100).toFixed(1)}</b></div>`).join('')}
       </div>` : ''}
     <div class="two-col">
       <div class="card"><h3>🎯 Most Disciplined</h3>
+        ${prize('discipline')}
         <p class="muted small">Highest discipline %. Needs at least ${ch.award_min_checkin_pct ?? 80}% check-in rate to qualify.</p>
         ${list(awards.discipline, 'rulesRate', (r) => `${r.sum.check} ✓ · ${r.sum.x} X`)}${myPlace(awards.discipline)}</div>
       <div class="card"><h3>⚡ Most Active</h3>
+        ${prize('active')}
         <p class="muted small">Highest check-in rate.</p>
         ${list(awards.active, 'checkInRate', (r) => `${r.sum.checkIns}/${r.sum.elapsed} days`)}${myPlace(awards.active)}</div>
     </div>`;
@@ -332,7 +345,7 @@ function claimCard(w, ch) {
     return `
     <div class="card prize-card">
       <div class="eyebrow">${esc(ch?.name ?? 'Challenge')}</div>
-      <h3>${award.icon} You won ${award.label}!</h3>
+      <h3>${award.icon} You won ${award.label}${w.details?.place ? ` #${w.details.place}` : ''}!</h3>
       <p>Your prize is a prop firm challenge account. Your coach is choosing your prize. Check back here soon to claim it.</p>
     </div>`;
   }
@@ -340,7 +353,7 @@ function claimCard(w, ch) {
   return `
     <div class="card prize-card" data-claim="${w.id}">
       <div class="eyebrow">${esc(ch?.name ?? 'Challenge')}</div>
-      <h3>${award.icon} You won ${award.label}!</h3>
+      <h3>${award.icon} You won ${award.label}${w.details?.place ? ` #${w.details.place}` : ''}!</h3>
       ${w.claimed_at ? `<p>Claim sent: <b>${prize}</b> · ${esc(w.prop_email)}. Your coach will send your challenge account. You can still correct your email below until it's sent.</p>` : `<p>Your prize: a <b>${prize}</b> challenge account. Register at ${esc(w.prop_firm)}, then enter the email you used there.</p>`}
       <form class="form" data-claim-form>
         <div class="form-row">
@@ -434,13 +447,44 @@ export async function viewChallenge(root) {
       const [label, tone] = STATE_COPY[ps.state];
       const took = ps.state !== 'not_eligible' && ps.state !== 'upcoming';
       const wrote = reflections.some((r) => r.challenge_id === p.id && r.student_id === me.id);
-      return `<div class="row-between list-row"><span>${esc(p.name)}</span><span class="row-gap"><span class="badge ${tone}">${label}</span>${ps.state === 'completed' ? `<a class="small" href="#/certificate/${p.id}">Certificate</a>` : ''}${took ? `<button class="btn ghost small" data-open-refl="${p.id}">${wrote ? 'Edit reflection' : 'Write reflection'}</button>` : ''}</span></div>
-        ${took ? `<div hidden data-refl-wrap="${p.id}">${reflectionCard(p, reflections.find((r) => r.challenge_id === p.id && r.student_id === me.id), false)}</div>` : ''}`;
+      return `<div class="row-between list-row"><span>${esc(p.name)}</span><span class="row-gap"><span class="badge ${tone}">${label}</span>${ps.state === 'completed' ? `<a class="small" href="#/certificate/${p.id}">Certificate</a>` : ''}${took ? `<button class="btn ghost small" data-open-refl="${p.id}">${wrote ? 'Edit reflection' : 'Write reflection'}</button>` : ''}<button class="btn ghost small" data-open-results="${p.id}">View results</button></span></div>
+        ${took ? `<div hidden data-refl-wrap="${p.id}">${reflectionCard(p, reflections.find((r) => r.challenge_id === p.id && r.student_id === me.id), false)}</div>` : ''}
+        <div hidden data-results-wrap="${p.id}"></div>`;
     }).join('')}</div>` : ''}`;
 
   root.querySelectorAll('[data-open-refl]').forEach((b) => b.addEventListener('click', () => {
     const wrap = $(`[data-refl-wrap="${b.dataset.openRefl}"]`, root);
     wrap.hidden = !wrap.hidden;
+  }));
+  // Final results of a past challenge, loaded the first time it's opened.
+  root.querySelectorAll('[data-open-results]').forEach((b) => b.addEventListener('click', async () => {
+    const p = store.challenges.find((x) => x.id === b.dataset.openResults);
+    const wrap = $(`[data-results-wrap="${p.id}"]`, root);
+    if (!wrap.dataset.loaded) {
+      await busy(b, async () => {
+        const { roster, marks: cohort } = await loadCohort(p.start_date, p.end_date);
+        const rows = roster.filter((s) => inChallenge(p, s)).map((s) => ({ s, sum: summarize({ ...ctx(s, cohort.get(s.id) ?? new Map()), from: p.start_date, to: p.end_date }) }));
+        const pastWinners = p.finalized_at ? await api.winnerList(p.id) : [];
+        const ps = challengeStatus(p, c, hasRules(p));
+        const [label, tone] = STATE_COPY[ps.state];
+        wrap.innerHTML = `
+          <div class="past-results">
+            ${ps.state !== 'not_eligible' ? `<div class="card"><h3>📊 Your result</h3>
+              <div class="row-between list-row"><span>Status</span><span class="badge ${tone}">${label}</span></div>
+              <div class="row-between list-row"><span>Days checked in</span><b>${ps.checkIns}/${ps.total}</b></div>
+              <div class="row-between list-row"><span>Check-in rate</span><b>${pct(ps.checkInRate)}</b></div>
+              <div class="row-between list-row"><span>Discipline</span><b>${pct(ps.rulesRate)}</b></div></div>` : ''}
+            ${pastWinners.length ? '' : '<p class="muted small">Winners for this challenge haven\'t been picked yet.</p>'}
+            ${standingsHtml(p, challengeAwards(p, rows), pastWinners, me.id)}
+          </div>`;
+        wrap.dataset.loaded = '1';
+      }).catch(() => {});
+      if (!wrap.dataset.loaded) return;
+      wrap.hidden = false;
+    } else {
+      wrap.hidden = !wrap.hidden;
+    }
+    b.textContent = wrap.hidden ? 'View results' : 'Hide results';
   }));
   root.querySelectorAll('[data-save-reflection]').forEach((btn) => btn.addEventListener('click', async (e) => {
     const card = btn.closest('[data-refl]');

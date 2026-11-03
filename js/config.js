@@ -69,6 +69,25 @@ export const ACCOUNT_TYPES = ['1-Step', '2-Step', 'Instant Funding'];
 // "$10K The5ers 2-Step" from a prize ({ prop_firm, account_size, account_type }); '' until firm and size are set.
 export const prizeText = (p) => (p?.prop_firm && p?.account_size ? [p.account_size, p.prop_firm, p.account_type].filter(Boolean).join(' ') : '');
 
+// Winners in award order, then by place (1st, 2nd, ...).
+export const sortWinners = (rows) => [...rows].sort((a, b) => Object.keys(AWARDS).indexOf(a.category) - Object.keys(AWARDS).indexOf(b.category) || (a.details?.place ?? 0) - (b.details?.place ?? 0));
+
+// An award's prize tiers: places 1..count win the main prize, the next extra.count places win
+// the extra prize. challenges.prizes.<award> = { count, prop_firm, account_size, account_type, extra: {...} }.
+export function prizeTiers(ch, cat) {
+  const p = ch?.prizes?.[cat] ?? {};
+  const first = cat === 'team' ? Number(p.count ?? ch?.team_draw_count ?? 1) : Math.max(1, Number(p.count) || 1);
+  const tiers = [{ ...p, count: first }];
+  if (Number(p.extra?.count) > 0) tiers.push({ ...p.extra, count: Number(p.extra.count) });
+  return tiers.filter((t) => t.count > 0);
+}
+export const winnerCount = (ch, cat) => prizeTiers(ch, cat).reduce((n, t) => n + t.count, 0);
+export function prizeFor(ch, cat, place) {
+  let upTo = 0;
+  for (const t of prizeTiers(ch, cat)) if (place <= (upTo += t.count)) return t;
+  return {};
+}
+
 // Challenge award names, shown to students and in the admin winners table.
 export const AWARDS = {
   discipline: { icon: '🎯', label: 'Most Disciplined' },

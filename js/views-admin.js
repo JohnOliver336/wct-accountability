@@ -1,6 +1,6 @@
 import { api, DEMO } from './api.js';
 import { mountMarkForm } from './checkin-form.js';
-import { ACCOUNT_SIZES, ACCOUNT_TYPES, AWARDS, PROP_FIRMS } from './config.js';
+import { ACCOUNT_SIZES, ACCOUNT_TYPES, AWARDS, PROP_FIRMS, prizeTiers, sortWinners, winnerCount } from './config.js';
 import { addDays, addMonths, fmtDate, fmtLong, monthEnd, monthStart, nyDateOf, weekStart } from './dates.js';
 import { challengeAwards, challengeStatus, daysSilent, effMark, inChallenge, indexMarks, lastCheckIn, rankCompare, streaks, studentStart, summarize, tradingDays } from './metrics.js';
 import { batchName, batchOf, ctx, loadReference, store } from './store.js';
@@ -828,16 +828,22 @@ function challengeForm(c, onDone) {
       <div class="chips">${store.batches.map((b) => `<label class="check chip-check"><input type="checkbox" name="batch" value="${b.id}" ${(v.batch_ids ?? []).includes(b.id) ? 'checked' : ''} ${locked ? 'disabled' : ''}> ${esc(b.name)}</label>`).join('')}</div>
       <div class="form-row">
         <label>🎯 Most Disciplined: minimum check-in %<input class="input" type="number" min="0" max="100" name="award_min_checkin_pct" value="${v.award_min_checkin_pct ?? 80}" ${locked ? 'disabled' : ''}></label>
-        <label>🤝 Team draw: winners picked from the winning batch<input class="input" type="number" min="0" max="50" name="team_draw_count" value="${v.team_draw_count ?? 1}" ${locked ? 'disabled' : ''}></label>
       </div>
-      <p class="hint">${locked ? 'Winners were already picked, so the competition settings are locked.' : 'Winners are picked automatically the day after the challenge ends: 🎯 Most Disciplined, ⚡ Most Active, and a random draw from the winning batch. One prize per person.'}</p>
+      <p class="hint">${locked ? 'Winners were already picked, so the competition settings are locked.' : 'Winners are picked automatically the day after the challenge ends: the top 🎯 Most Disciplined, the top ⚡ Most Active, and a random draw from the winning batch. One prize per person: someone who already won moves aside for the next in line.'}</p>
       <div class="field-label">Prizes <span class="muted small">(shown to students during the challenge; each winner gets the prize for their award)</span></div>
-      ${Object.entries(AWARDS).map(([cat, a]) => `
+      ${Object.entries(AWARDS).map(([cat, a]) => {
+        const [t1, t2] = [prizeTiers(v, cat)[0] ?? { count: 0 }, v.prizes?.[cat]?.extra ?? {}];
+        const row = (key, t, label, min) => `
         <div class="form-row">
-          <label>${a.icon} ${a.label}: prop firm${prizeSelect(`${cat}.prop_firm`, PROP_FIRMS, v.prizes?.[cat]?.prop_firm)}</label>
-          <label>Account size${prizeSelect(`${cat}.account_size`, ACCOUNT_SIZES, v.prizes?.[cat]?.account_size)}</label>
-          <label>Account type${prizeSelect(`${cat}.account_type`, ACCOUNT_TYPES, v.prizes?.[cat]?.account_type)}</label>
-        </div>`).join('')}
+          <label>${label}<input class="input" type="number" min="${min}" max="50" name="${key}.count" value="${t.count ?? 0}" ${locked ? 'disabled' : ''}></label>
+          <label>Prop firm${prizeSelect(`${key}.prop_firm`, PROP_FIRMS, t.prop_firm)}</label>
+          <label>Account size${prizeSelect(`${key}.account_size`, ACCOUNT_SIZES, t.account_size)}</label>
+          <label>Account type${prizeSelect(`${key}.account_type`, ACCOUNT_TYPES, t.account_type)}</label>
+        </div>`;
+        return row(cat, t1, `${a.icon} ${a.label}: ${cat === 'team' ? 'winners drawn' : 'top'}`, cat === 'team' ? 0 : 1)
+          + row(`${cat}.extra`, t2, `↳ then the next <span class="muted small">(optional 2nd prize)</span>`, 0);
+      }).join('')}
+      <p class="hint">Example: Team draw 2 winners drawn ACG, then the next 3 Equity Edge = 5 winners drawn from the winning batch.</p>
       <div class="row-end"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">Save</button></div>
     </form>`, (dlg) => {
     $('[data-form]', dlg).addEventListener('submit', async (e) => {
@@ -849,13 +855,19 @@ function challengeForm(c, onDone) {
         ...(c ? { id: c.id } : {}),
         name: f.name, description: f.description, start_date: f.start_date, end_date: f.end_date,
         min_checkin_pct: Number(f.min_checkin_pct), min_rules_pct: Number(f.min_rules_pct),
-        prizes: Object.fromEntries(Object.keys(AWARDS).map((cat) => [cat, {
-          prop_firm: f[`${cat}.prop_firm`] || null, account_size: f[`${cat}.account_size`] || null, account_type: f[`${cat}.account_type`] || null,
-        }])),
+        prizes: Object.fromEntries(Object.keys(AWARDS).map((cat) => {
+          const tier = (key, count) => ({ count, prop_firm: f[`${key}.prop_firm`] || null, account_size: f[`${key}.account_size`] || null, account_type: f[`${key}.account_type`] || null });
+          const n = (key, min) => Math.max(min, Number(f[`${key}.count`]) || 0);
+          const old = prizeTiers(c, cat);
+          return [cat, {
+            ...tier(cat, locked ? old[0]?.count ?? 0 : n(cat, cat === 'team' ? 0 : 1)),
+            extra: tier(`${cat}.extra`, locked ? Number(c.prizes?.[cat]?.extra?.count) || 0 : n(`${cat}.extra`, 0)),
+          }];
+        })),
       };
       if (!locked) {
         const ids = fd.getAll('batch');
-        Object.assign(row, { batch_ids: ids.length ? ids : null, award_min_checkin_pct: Number(f.award_min_checkin_pct), team_draw_count: Number(f.team_draw_count) });
+        Object.assign(row, { batch_ids: ids.length ? ids : null, award_min_checkin_pct: Number(f.award_min_checkin_pct), team_draw_count: winnerCount(row, 'team') });
       }
       await busy(e.submitter, () => api.saveChallenge(row));
       store.challenges = await api.listChallenges();
@@ -901,10 +913,10 @@ export async function viewAdminChallenges(root) {
           ${ch.finalized_at ? `
             <div class="table-wrap"><table class="table">
               <thead><tr><th>Award</th><th>Winner</th><th>Result</th><th>Prop firm</th><th>Account size</th><th>Account type</th><th>Registered email</th><th>Status</th></tr></thead>
-              <tbody>${prizeRows.map((w) => {
+              <tbody>${sortWinners(prizeRows).map((w) => {
                 const s = students.find((x) => x.id === w.student_id);
                 const d = w.details ?? {};
-                return `<tr><td>${AWARDS[w.category].icon} ${AWARDS[w.category].label}</td>
+                return `<tr><td>${AWARDS[w.category].icon} ${AWARDS[w.category].label}${d.place ? ` <span class="muted small">#${d.place}</span>` : ''}</td>
                   <td><a href="#/admin/student/${w.student_id}">${esc(s?.full_name ?? '?')}</a><div class="muted small">${esc(batchName(s))}</div></td>
                   <td class="small">${w.category === 'active' ? `${d.checkin_rate}% check-in` : w.category === 'discipline' ? `${d.discipline}% discipline · ${d.checkin_rate}% check-in` : `drawn · ${d.checkin_rate}% check-in`}</td>
                   <td>${prizePick(w, 'prop_firm', PROP_FIRMS)}</td>

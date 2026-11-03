@@ -1,7 +1,7 @@
 // Offline demo backend. Same interface as api-supabase.js, data lives in localStorage.
 // Every name here is made up. Used until SUPABASE_URL is set in config.js.
 import { addDays, isWeekend, todayNY } from './dates.js';
-import { MISTAKE_TAGS, SCREENSHOT_RETENTION_DAYS, SETUPS, SESSIONS } from './config.js';
+import { MISTAKE_TAGS, SCREENSHOT_RETENTION_DAYS, SETUPS, SESSIONS, prizeFor, winnerCount } from './config.js';
 import { challengeAwards, inChallenge, summarize } from './metrics.js';
 
 const KEY = 'wct-demo-db-v6';
@@ -200,18 +200,20 @@ export function createDemoApi() {
     const won = new Set();
     const add = (r, category, details) => {
       won.add(r.s.id);
-      db.challenge_winners.push({ id: uid(), challenge_id: ch.id, student_id: r.s.id, category, details, prop_firm: null, account_size: null, account_type: null, ...(ch.prizes?.[category] ?? {}), prop_email: null, claimed_at: null, prize_sent_at: null, created_at: new Date().toISOString() });
+      const p = prizeFor(ch, category, details.place);
+      db.challenge_winners.push({ id: uid(), challenge_id: ch.id, student_id: r.s.id, category, details, prop_firm: p.prop_firm ?? null, account_size: p.account_size ?? null, account_type: p.account_type ?? null, prop_email: null, claimed_at: null, prize_sent_at: null, created_at: new Date().toISOString() });
     };
     const pct = (v) => (v == null ? null : Math.round(v * 1000) / 10);
-    if (discipline[0]) add(discipline[0], 'discipline', { discipline: pct(discipline[0].sum.rulesRate), checkin_rate: pct(discipline[0].sum.checkInRate), checks: discipline[0].sum.check, xs: discipline[0].sum.x, days: discipline[0].sum.elapsed });
-    const act = active.find((r) => !won.has(r.s.id));
-    if (act) add(act, 'active', { checkin_rate: pct(act.sum.checkInRate), checkins: act.sum.checkIns, days: act.sum.elapsed, discipline: pct(act.sum.rulesRate) });
+    discipline.slice(0, winnerCount(ch, 'discipline')).forEach((r, i) =>
+      add(r, 'discipline', { place: i + 1, discipline: pct(r.sum.rulesRate), checkin_rate: pct(r.sum.checkInRate), checks: r.sum.check, xs: r.sum.x, days: r.sum.elapsed }));
+    active.filter((r) => !won.has(r.s.id)).slice(0, winnerCount(ch, 'active')).forEach((r, i) =>
+      add(r, 'active', { place: i + 1, checkin_rate: pct(r.sum.checkInRate), checkins: r.sum.checkIns, days: r.sum.elapsed, discipline: pct(r.sum.rulesRate) }));
     ch.team_results = teams.map((t) => ({ batch_id: t.batch_id, batch: db.batches.find((b) => b.id === t.batch_id)?.name, members: t.members, score: pct(t.score) }));
     if (teams[0]) {
       const pool = rows.filter((r) => r.s.batch_id === teams[0].batch_id && r.sum.checkInRate >= 0.5 && !won.has(r.s.id));
-      for (let i = 0; i < (ch.team_draw_count ?? 1) && pool.length; i++) {
+      for (let i = 0; i < winnerCount(ch, 'team') && pool.length; i++) {
         const r = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
-        add(r, 'team', { batch_id: teams[0].batch_id, checkin_rate: pct(r.sum.checkInRate), discipline: pct(r.sum.rulesRate), drawn_at: new Date().toISOString() });
+        add(r, 'team', { place: i + 1, batch_id: teams[0].batch_id,checkin_rate: pct(r.sum.checkInRate), discipline: pct(r.sum.rulesRate), drawn_at: new Date().toISOString() });
       }
     }
     ch.finalized_at = new Date().toISOString();
@@ -325,7 +327,7 @@ export function createDemoApi() {
         .sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category))
         .map((w) => {
           const s = db.students.find((x) => x.id === w.student_id);
-          return { category: w.category, full_name: s?.full_name, batch_name: db.batches.find((b) => b.id === s?.batch_id)?.name ?? null, details: w.details };
+          return { category: w.category, full_name: s?.full_name, batch_name: db.batches.find((b) => b.id === s?.batch_id)?.name ?? null, details: w.details, prop_firm: w.prop_firm, account_size: w.account_size, account_type: w.account_type };
         }));
     },
     setPrize: async (id, fields) => upsert('challenge_winners', { id, ...fields }),
