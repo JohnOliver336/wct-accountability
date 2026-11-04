@@ -70,10 +70,14 @@ export const ACCOUNT_TYPES = ['1-Step', '2-Step', 'Instant Funding'];
 // Logos are the firms' own logos from their websites, saved in assets/sponsors/ (white/green, made for dark backgrounds).
 // h = logo height in px (the 5ers mark is near-square, so it sits taller to read the same size).
 // url (optional) makes the logo a link, e.g. an affiliate link.
+// codes (optional): [code, what it gives], shown under the logo.
 export const SPONSORS = [
-  { name: 'Equity Edge', logo: 'assets/sponsors/equity-edge.svg', h: 24, url: 'https://app.equityedge.io/signup/WCT/' },
-  { name: 'Alpha Capital Group', logo: 'assets/sponsors/alpha-capital-group.svg', h: 24, url: 'https://app.alphacapitalgroup.uk/signup/WCT/' },
-  { name: 'The5ers', logo: 'assets/sponsors/the5ers.svg', h: 34, url: 'https://www.the5ers.com/?afmc=1cre' },
+  { name: 'Equity Edge', logo: 'assets/sponsors/equity-edge.svg', h: 24, url: 'https://app.equityedge.io/signup/WCT/',
+    codes: [['WCT', '50% off']] },
+  { name: 'Alpha Capital Group', logo: 'assets/sponsors/alpha-capital-group.svg', h: 24, url: 'https://app.alphacapitalgroup.uk/signup/WCT/',
+    codes: [['WCT', 'best discounts'], ['WCT50', '50% off']] },
+  { name: 'The5ers', logo: 'assets/sponsors/the5ers.svg', h: 34, url: 'https://www.the5ers.com/?afmc=1cre',
+    codes: [['WCT', 'best discounts']] },
 ];
 
 // "$10K The5ers 2-Step" from a prize ({ prop_firm, account_size, account_type }); '' until firm and size are set.

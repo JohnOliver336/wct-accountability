@@ -421,7 +421,10 @@ label.check input { width: 18px; height: 18px; accent-color: var(--brand); }
 .sponsor { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 6px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font-weight: 700; font-size: 14px; text-decoration: none; }
 a.sponsor:hover { border-color: var(--brand); }
 .sponsor img { height: 24px; width: auto; max-width: 150px; display: block; }
-.sponsor:has(img) { min-width: 150px; min-height: 52px; }
+.sponsor:has(img) { width: 200px; min-height: 52px; flex-direction: column; gap: 8px; padding: 12px 16px; }
+.sponsor-logo { display: flex; align-items: center; justify-content: center; height: 34px; }
+.sponsor-codes { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.sponsor-codes b { color: var(--brand); font-weight: 800; letter-spacing: 0.03em; }
 .sponsor-card .sponsor { background: var(--surface-2); }
 .sponsors.on-auth { margin-top: 18px; width: 100%; max-width: 420px; }
 .auth:has(.on-auth) { align-content: center; }

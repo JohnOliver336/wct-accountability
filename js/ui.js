@@ -100,7 +100,9 @@ export function markPill(mark) {
 // "Prizes sponsored by" with each sponsor's logo (or name until a logo is added).
 export function sponsorStrip(cls = '') {
   const item = (s) => {
-    const inner = s.logo ? `<img src="${esc(s.logo)}" alt="${esc(s.name)}" title="${esc(s.name)}"${s.h ? ` style="height:${Number(s.h)}px"` : ''}>` : `<span>${esc(s.name)}</span>`;
+    const logo = s.logo ? `<span class="sponsor-logo"><img src="${esc(s.logo)}" alt="${esc(s.name)}" title="${esc(s.name)}"${s.h ? ` style="height:${Number(s.h)}px"` : ''}></span>` : `<span>${esc(s.name)}</span>`;
+    const codes = s.codes?.length ? `<span class="sponsor-codes">${s.codes.map(([c, d]) => `<span>Code <b>${esc(c)}</b> · ${esc(d)}</span>`).join('')}</span>` : '';
+    const inner = logo + codes;
     return s.url ? `<a class="sponsor" href="${esc(s.url)}" target="_blank" rel="noopener sponsored">${inner}</a>` : `<span class="sponsor">${inner}</span>`;
   };
   return `<div class="sponsors ${cls}"><div class="sponsors-label">30-Day Challenge prizes sponsored by</div><div class="sponsors-row">${SPONSORS.map(item).join('')}</div></div>`;
