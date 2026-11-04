@@ -105,12 +105,17 @@ export function challengeStatus(ch, { student, batch, today, cal, marks }, { has
   return { ...s, total, remaining, state };
 }
 
+// Prizes need the challenge's minimum number of trades. Passing the challenge doesn't.
+export const prizeEligible = (ch, r) => (r.trades ?? 0) >= (ch?.min_trades ?? 0);
+
 // A challenge can be limited to some batches (batch_ids); none set means every batch.
 export const inChallenge = (ch, student) => !ch?.batch_ids?.length || ch.batch_ids.includes(student?.batch_id);
 
 // Live standings and awards for a challenge. Same rules as public._finalize_challenge in
 // supabase/007_challenge_prizes.sql, which picks the official winners once it ends.
-// rows: [{ s, sum }] where sum = summarize() over the challenge window.
+// rows: [{ s, sum, trades }] where sum = summarize() over the challenge window and trades =
+// trades posted during the challenge (see api.tradeCounts). Everyone is ranked; who can
+// actually win also depends on prizeEligible.
 export function challengeAwards(ch, rows) {
   const people = rows.filter((r) => inChallenge(ch, r.s) && r.sum.elapsed > 0);
   const min = (ch.award_min_checkin_pct ?? 80) / 100;

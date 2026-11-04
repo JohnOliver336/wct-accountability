@@ -2,7 +2,7 @@
 // Every name here is made up. Used until SUPABASE_URL is set in config.js.
 import { addDays, isWeekend, todayNY } from './dates.js';
 import { MISTAKE_TAGS, SCREENSHOT_RETENTION_DAYS, SETUPS, SESSIONS, prizeFor, winnerCount } from './config.js';
-import { challengeAwards, inChallenge, summarize } from './metrics.js';
+import { challengeAwards, inChallenge, prizeEligible, summarize } from './metrics.js';
 
 const KEY = 'wct-demo-db-v6';
 const IMG_PREFIX = 'wct-demo-img:';
@@ -158,6 +158,7 @@ export function createDemoApi() {
   let db;
   try { db = JSON.parse(localStorage.getItem(KEY)); } catch { db = null; }
   if (!db) db = seed();
+  db.image_hashes ??= []; // added after v6 demo data was seeded
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { /* private mode */ } };
   save();
 
@@ -182,9 +183,16 @@ export function createDemoApi() {
   };
   const ok = (v) => Promise.resolve(clone(v));
 
+  const tradeCounts = (ch) => {
+    const out = new Map();
+    for (const t of db.trade_posts) if (ch && t.date >= ch.start_date && t.date <= ch.end_date) out.set(t.student_id, (out.get(t.student_id) ?? 0) + 1);
+    return out;
+  };
+
   // Demo version of public._finalize_challenge: picks the winners once and stores them.
   function finalize(ch) {
     if (!ch || ch.finalized_at) return 0;
+    const trades = tradeCounts(ch);
     const today = todayNY();
     const cal = new Map(db.trading_days.map((r) => [r.date, r]));
     const marksBy = new Map();
@@ -195,6 +203,7 @@ export function createDemoApi() {
     const rows = db.students.filter((s) => s.role === 'student' && s.status === 'active' && inChallenge(ch, s)).map((s) => ({
       s,
       sum: summarize({ student: s, batch: db.batches.find((b) => b.id === s.batch_id), from: ch.start_date, to: ch.end_date, today, cal, marks: marksBy.get(s.id) ?? new Map() }),
+      trades: trades.get(s.id) ?? 0,
     }));
     const { discipline, active, teams } = challengeAwards(ch, rows);
     const won = new Set();
@@ -204,13 +213,13 @@ export function createDemoApi() {
       db.challenge_winners.push({ id: uid(), challenge_id: ch.id, student_id: r.s.id, category, details, prop_firm: p.prop_firm ?? null, account_size: p.account_size ?? null, account_type: p.account_type ?? null, prop_email: null, claimed_at: null, prize_sent_at: null, created_at: new Date().toISOString() });
     };
     const pct = (v) => (v == null ? null : Math.round(v * 1000) / 10);
-    discipline.slice(0, winnerCount(ch, 'discipline')).forEach((r, i) =>
-      add(r, 'discipline', { place: i + 1, discipline: pct(r.sum.rulesRate), checkin_rate: pct(r.sum.checkInRate), checks: r.sum.check, xs: r.sum.x, days: r.sum.elapsed }));
-    active.filter((r) => !won.has(r.s.id)).slice(0, winnerCount(ch, 'active')).forEach((r, i) =>
-      add(r, 'active', { place: i + 1, checkin_rate: pct(r.sum.checkInRate), checkins: r.sum.checkIns, days: r.sum.elapsed, discipline: pct(r.sum.rulesRate) }));
+    discipline.filter((r) => prizeEligible(ch, r)).slice(0, winnerCount(ch, 'discipline')).forEach((r, i) =>
+      add(r, 'discipline', { place: i + 1, discipline: pct(r.sum.rulesRate), checkin_rate: pct(r.sum.checkInRate), checks: r.sum.check, xs: r.sum.x, days: r.sum.elapsed, trades: r.trades }));
+    active.filter((r) => !won.has(r.s.id) && prizeEligible(ch, r)).slice(0, winnerCount(ch, 'active')).forEach((r, i) =>
+      add(r, 'active', { place: i + 1, checkin_rate: pct(r.sum.checkInRate), checkins: r.sum.checkIns, days: r.sum.elapsed, discipline: pct(r.sum.rulesRate), trades: r.trades }));
     ch.team_results = teams.map((t) => ({ batch_id: t.batch_id, batch: db.batches.find((b) => b.id === t.batch_id)?.name, members: t.members, score: pct(t.score) }));
     if (teams[0]) {
-      const pool = rows.filter((r) => r.s.batch_id === teams[0].batch_id && r.sum.checkInRate >= 0.5 && !won.has(r.s.id));
+      const pool = rows.filter((r) => r.s.batch_id === teams[0].batch_id && r.sum.checkInRate >= 0.5 && prizeEligible(ch, r) && !won.has(r.s.id));
       for (let i = 0; i < winnerCount(ch, 'team') && pool.length; i++) {
         const r = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
         add(r, 'team', { place: i + 1, batch_id: teams[0].batch_id,checkin_rate: pct(r.sum.checkInRate), discipline: pct(r.sum.rulesRate), drawn_at: new Date().toISOString() });
@@ -342,6 +351,7 @@ export function createDemoApi() {
     async finalizeChallengeNow(id) {
       return finalize(db.challenges.find((c) => c.id === id));
     },
+    tradeCounts: async (challengeId) => tradeCounts(db.challenges.find((c) => c.id === challengeId)),
 
     listReflections: () => ok([...db.reflections].reverse()),
     async saveReflection(r) {
@@ -370,7 +380,7 @@ export function createDemoApi() {
     },
     deleteTrade: async (id) => remove('trade_posts', 'id', id),
 
-    async uploadExecution(studentId, blob) {
+    async uploadExecution(studentId, blob, hash) {
       const path = `${studentId}/${uid()}.jpg`;
       const dataUrl = await new Promise((resolve) => {
         const fr = new FileReader();
@@ -378,12 +388,21 @@ export function createDemoApi() {
         fr.readAsDataURL(blob);
       });
       try { localStorage.setItem(IMG_PREFIX + path, dataUrl); } catch { throw new Error('Demo storage is full. Reset demo data in Setup.'); }
+      if (hash) { db.image_hashes.push({ path, hash, student_id: studentId, created_at: new Date().toISOString() }); save(); }
       return path;
+    },
+    async imageSeen(hash) {
+      const me = db.students.find((s) => session && s.user_id === session.user.id);
+      const rows = db.image_hashes.filter((r) => r.hash === hash);
+      return rows.some((r) => r.student_id === me?.id) ? 'mine' : rows.length ? 'other' : null;
     },
     imageUrl: async (path) => {
       try { return localStorage.getItem(IMG_PREFIX + path) || SAMPLE_IMG; } catch { return SAMPLE_IMG; }
     },
-    deleteImage: async (path) => { try { localStorage.removeItem(IMG_PREFIX + path); } catch { /* ignore */ } },
+    deleteImage: async (path) => {
+      try { localStorage.removeItem(IMG_PREFIX + path); } catch { /* ignore */ }
+      remove('image_hashes', 'path', path);
+    },
 
     getSettings: () => ok(db.app_settings),
     async saveSettings(s) {

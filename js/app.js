@@ -1,7 +1,7 @@
 import { api, DEMO } from './api.js';
 import { APP_NAME, PROGRAM_NAME } from './config.js';
 import { loadReference, store } from './store.js';
-import { $, $$, busy, esc, toast } from './ui.js';
+import { $, $$, busy, esc, sponsorStrip, toast } from './ui.js';
 import { viewCertificate, viewChallenge, viewLeaderboard, viewProgress, viewRules, viewToday } from './views-student.js';
 import { viewAdminCalendar, viewAdminChallenges, viewAdminOverview, viewAdminReview, viewAdminSetup, viewAdminStudent, viewAdminStudents } from './views-admin.js';
 
@@ -66,6 +66,7 @@ function shell() {
     </header>
     ${DEMO ? '<div class="demo-bar">Demo mode · data stays in this browser · <a href="#" data-signout>switch user</a></div>' : ''}
     <main id="view"></main>
+    <footer class="site-foot">${sponsorStrip()}</footer>
     <nav class="bottomnav ${isAdmin ? 'admin' : ''}">${nav.map(([k, label, icon]) => `<a href="#/${k}" data-nav="${k}"><span>${icon}</span>${label}</a>`).join('')}</nav>`;
   $('[data-signout]', app)?.addEventListener('click', (e) => { e.preventDefault(); api.signOut(); });
 }
@@ -164,6 +165,7 @@ function authScreen(tab = 'signin', notice = '') {
             ${demoUsers.map((u) => `<button class="demo-user" data-demo="${esc(u.email)}"><b>${esc(u.full_name)}</b><span>${u.role === 'admin' ? 'Admin' : esc(store.batches.find((b) => b.id === u.batch_id)?.name ?? '')}</span></button>`).join('')}
           </div>` : ''}`}
       </div>
+      ${sponsorStrip('on-auth')}
     </div>`;
 
   app.onclick = async (e) => {

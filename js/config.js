@@ -66,6 +66,15 @@ export const PROP_FIRMS = ['Equity Edge', 'Alpha Capital Group (ACG)', 'The5ers'
 export const ACCOUNT_SIZES = ['$5K', '$10K', '$25K', '$50K', '$100K'];
 export const ACCOUNT_TYPES = ['1-Step', '2-Step', 'Instant Funding'];
 
+// Challenge sponsors, shown on every page, the sign-in screen and the challenge page.
+// To show a logo, put the file in assets/sponsors/ and set logo, e.g. 'assets/sponsors/equity-edge.png'.
+// url (optional) makes the name a link, e.g. an affiliate link.
+export const SPONSORS = [
+  { name: 'Equity Edge', logo: null, url: null },
+  { name: 'Alpha Capital Group', logo: null, url: null },
+  { name: 'The5ers', logo: null, url: null },
+];
+
 // "$10K The5ers 2-Step" from a prize ({ prop_firm, account_size, account_type }); '' until firm and size are set.
 export const prizeText = (p) => (p?.prop_firm && p?.account_size ? [p.account_size, p.prop_firm, p.account_type].filter(Boolean).join(' ') : '');
 

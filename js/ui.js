@@ -1,4 +1,4 @@
-import { MARKS, NO_ENTRY_REASONS } from './config.js';
+import { MARKS, NO_ENTRY_REASONS, SPONSORS } from './config.js';
 import { addDays, fmtLong, fmtTime12, isWeekend, monthEnd, monthStart, nyTimeInManila, weekStart } from './dates.js';
 import { effMark } from './metrics.js';
 import { store } from './store.js';
@@ -97,6 +97,15 @@ export function markPill(mark) {
   return `<span class="pill pill-${mark.toLowerCase()}">${MARKS[mark].glyph} ${MARKS[mark].label}</span>`;
 }
 
+// "Prizes sponsored by" with each sponsor's logo (or name until a logo is added).
+export function sponsorStrip(cls = '') {
+  const item = (s) => {
+    const inner = s.logo ? `<img src="${esc(s.logo)}" alt="${esc(s.name)}">` : `<span>${esc(s.name)}</span>`;
+    return s.url ? `<a class="sponsor" href="${esc(s.url)}" target="_blank" rel="noopener sponsored">${inner}</a>` : `<span class="sponsor">${inner}</span>`;
+  };
+  return `<div class="sponsors ${cls}"><div class="sponsors-label">30-Day Challenge prizes sponsored by</div><div class="sponsors-row">${SPONSORS.map(item).join('')}</div></div>`;
+}
+
 export function checkInSummary(ci) {
   const bits = [];
   if (ci.setup) bits.push(esc(ci.setup));
@@ -106,7 +115,10 @@ export function checkInSummary(ci) {
   const coach = ci.coach_status === 'invalid'
     ? `<div class="coach-flag bad"><strong>Coach: not valid, counts as X.</strong>${ci.coach_note ? ` ${esc(ci.coach_note)}` : ''}</div>`
     : ci.coach_status === 'valid' ? `<div class="coach-flag good">Coach verified ✓${ci.coach_note ? ` · ${esc(ci.coach_note)}` : ''}</div>` : '';
-  return `${markPill(ci.mark)}${bits.length ? `<div class="muted small">${bits.join(' · ')}</div>` : ''}
+  const p = ci.no_trade_proof;
+  const proof = p ? `<div class="proof-box"><div class="muted small"><b>No trade.</b> Watched ${esc(p.market)} · ${esc(p.session)} · waiting for ${esc(p.waited_for)}</div>
+    <blockquote>${esc(p.why)}</blockquote>${p.chart_path ? `<img class="proof-thumb" data-path="${esc(p.chart_path)}" alt="Chart they watched">` : ''}</div>` : '';
+  return `${markPill(ci.mark)}${bits.length ? `<div class="muted small">${bits.join(' · ')}</div>` : ''}${proof}
     ${ci.auto_flags?.length ? `<ul class="flags">${ci.auto_flags.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}
     ${ci.reason_note ? `<blockquote>${esc(ci.reason_note)}</blockquote>` : ''}${coach}`;
 }

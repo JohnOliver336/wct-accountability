@@ -75,9 +75,18 @@ function buildSignals(checkIns, trades, students) {
     push(byThought, t.thoughts?.trim().toLowerCase());
     push(byChart, t.chart_url?.trim().replace(/\/$/, ''));
   }
+  // No-trade explanations, compared without case or punctuation.
+  const whyKey = (ci) => ci.no_trade_proof?.why?.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() || null;
+  const byWhy = new Map();
+  for (const ci of checkIns) {
+    const k = whyKey(ci);
+    if (k) byWhy.set(k, [...(byWhy.get(k) ?? []), ci]);
+  }
   const out = new Map();
   for (const ci of checkIns) {
     const list = [];
+    const dupWhy = (byWhy.get(whyKey(ci)) ?? []).filter((o) => o.id !== ci.id);
+    if (dupWhy.length) list.push(`No-trade explanation copied: same words ${dupWhy.map((o) => `${o.student_id === ci.student_id ? 'by them' : `by ${nameOf(o.student_id)}`} on ${fmtDate(o.date, { month: 'short', day: 'numeric' })}`).join(', ')}`);
     const logged = ci.created_at ? nyDateOf(ci.created_at) : null;
     if (logged && logged > ci.date) {
       const late = Math.round((new Date(logged) - new Date(ci.date)) / 864e5);
@@ -106,21 +115,27 @@ const CLAUDE_PROMPT = `You are helping a trading coach (Winner Circle Traders, 3
 
 Scoring: discipline % = CHECK / (CHECK + X). A CHECK day may have no trades: not trading when there was no setup, or on a no-trade day, is following the rules. A day with no mark is "no check-in" and counts as 0. NO_ENTRY only appears on old check-ins; treat it as attendance only. A day the coach marked "invalid" counts as X (see effective_mark). P&L never counts.
 
+No-trade proof: a CHECK day with no trades on a day trading was allowed has "no_trade_proof": the market and session they watched, the setup they waited for, why it didn't form, and a chart screenshot. Fake, random or copy-pasted proof should count as X.
+
 Please produce:
 1. DISCIPLINE RANKING: the top 10 by discipline % (ties: check-in rate, then number of CHECK days). Name anyone with fewer than 3 traded days separately, since their % means little.
-2. RELIABILITY REVIEW: students whose logs may not be genuine. For each, list the concrete evidence from the data, e.g. the "signals" field, CHECK days whose trades break the student's own rulebook (risk, trade count, daily stop, news days) without being flagged, thought processes that are generic, vague or copied, results that look too perfect, entries outside their stated session, days logged late or edited, CHECK every single day with almost no trades posted, missing ticket numbers. Rate each low / medium / high concern. Don't accuse anyone: present the evidence and let the coach decide. Also say which students look clearly genuine.
+2. RELIABILITY REVIEW: students whose logs may not be genuine. For each, list the concrete evidence from the data, e.g. the "signals" field, CHECK days whose trades break the student's own rulebook (risk, trade count, daily stop, news days) without being flagged, thought processes that are generic, vague or copied, results that look too perfect, entries outside their stated session, days logged late or edited, CHECK every single day with almost no trades posted, missing ticket numbers, no-trade explanations that are nonsense, generic, copied or don't fit that day's news. Rate each low / medium / high concern. Don't accuse anyone: present the evidence and let the coach decide. Also say which students look clearly genuine.
 3. MISTAKE PATTERNS: the most common rule breaks this month and one suggested topic for the next Saturday lesson.
 4. FOLLOW-UPS: who to message this week (gone quiet, repeated X, high concern), each with a one-line suggested message.
 Keep it short, use tables where it helps. Answer in English.`;
 
 const PROOF_PROMPT = `\n\nTHIS IS A PROOF PACK. Each trade's "screenshot_files" points to its MT5 screenshots inside the screenshots/ folder of this ZIP. Open every screenshot and add:
-5. PROOF CHECK: for each trade, compare the screenshots with what the student logged: ticket number, symbol, direction, entry time (screenshots may show broker server time, not New York time), result and date. Flag: numbers that don't match, the same image (or the same trade) reused on different days or by different students, a different account number or name than the student's other screenshots, more trades in the history than were logged, signs of editing (mismatched fonts, misaligned digits, blurred areas), demo-account labels. List flagged trades per student with the file name and what doesn't match, rate each low / medium / high, and say which students' proof looks consistent. Screenshots can be faked, so present evidence, not verdicts, and suggest asking high-concern students for an MT5 investor password or broker statement.`;
+5. PROOF CHECK: for each trade, compare the screenshots with what the student logged: ticket number, symbol, direction, entry time (screenshots may show broker server time, not New York time), result and date. Flag: numbers that don't match, the same image (or the same trade) reused on different days or by different students, a different account number or name than the student's other screenshots, more trades in the history than were logged, signs of editing (mismatched fonts, misaligned digits, blurred areas), demo-account labels. List flagged trades per student with the file name and what doesn't match, rate each low / medium / high, and say which students' proof looks consistent. Screenshots can be faked, so present evidence, not verdicts, and suggest asking high-concern students for an MT5 investor password or broker statement.
+6. NO-TRADE PROOF CHECK: open each no_trade_proof screenshot. Flag images that aren't a price chart (memes, photos, blank screens), charts of a different market than they named, charts that don't show that day or session, and the same chart used on several days. Read each explanation against its chart and that day's news. List the days to mark "not valid" (counts as X) with the reason, per student.`;
+
+// Internal fields (_t, _path) stay out of the exported JSON.
+const hidden = (k, v) => (k === '_t' || k === '_path' ? undefined : v);
 
 const zipName = (s) => s.replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '');
 
 async function exportForClaude(month, students, marks) {
   const payload = await auditPayload(month, students, marks);
-  const blob = new Blob([JSON.stringify(payload, (k, v) => (k === '_t' ? undefined : v), 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify(payload, hidden, 2)], { type: 'application/json' });
   download(blob, `WCT_Claude_Export_${fmtDate(month, { month: 'long', year: 'numeric' }).replace(' ', '_')}.json`);
   toast('Downloaded. Give this file to Claude and ask it to follow the instructions inside.');
 }
@@ -142,6 +157,11 @@ async function exportProofPack(month, students, marks, onProgress) {
   const jobs = [];
   for (const s of payload.students) {
     for (const d of s.days) {
+      const p = d.no_trade_proof;
+      if (p?._path) {
+        p.screenshot_files = {};
+        jobs.push({ tr: p, kind: 'chart', path: p._path, base: `screenshots/${zipName(s.name)}/${d.date}_no_trade` });
+      }
       d.trades.forEach((tr, i) => {
         const t = tr._t;
         tr.screenshot_files = {};
@@ -169,7 +189,7 @@ async function exportProofPack(month, students, marks, onProgress) {
   const total = jobs.length;
   onProgress(0, total);
   await Promise.all(Array.from({ length: 6 }, worker));
-  zip.file('data.json', JSON.stringify(payload, (k, v) => (k === '_t' ? undefined : v), 2));
+  zip.file('data.json', JSON.stringify(payload, hidden, 2));
   zip.file('README.txt', `WCT proof pack, ${payload.month}.\nGive this ZIP (or the unzipped folder) to Claude and ask it to follow the instructions in data.json.\nContains student trade screenshots: keep it private, never upload it to GitHub.\n`);
   const blob = await zip.generateAsync({ type: 'blob' });
   download(blob, `WCT_Proof_Pack_${fmtDate(month, { month: 'long', year: 'numeric' }).replace(' ', '_')}.zip`);
@@ -218,6 +238,7 @@ async function auditPayload(month, students, marks) {
           coach_status: ci.coach_status ?? null,
           coach_note: ci.coach_note ?? null,
           signals: signals.get(ci.id) ?? [],
+          no_trade_proof: ci.no_trade_proof ? { market: ci.no_trade_proof.market, session: ci.no_trade_proof.session, waited_for: ci.no_trade_proof.waited_for, why: ci.no_trade_proof.why, has_chart_screenshot: !!ci.no_trade_proof.chart_path, _path: ci.no_trade_proof.chart_path } : null,
           trades: trades.filter((t) => t.student_id === s.id && t.date === d).map((t) => ({
             symbol: t.symbol, direction: t.direction, entry_model: t.setup, session: t.session,
             entry_time_ny: t.entry_time_ny?.slice(0, 5) ?? null, risk_pct: Number(t.risk_pct), result_r: Number(t.result_r),
@@ -281,13 +302,13 @@ function bindReview(root, getCheckIns, onDone) {
 }
 
 export async function viewAdminReview(root) {
-  let filter = 'todo', batch = '', range = 14;
+  let filter = 'todo', batch = '', range = 'month';
   let shown = [];
   bindReview(root, () => shown, () => render());
 
   async function render() {
     root.innerHTML = '<div class="loading">Loading…</div>';
-    const from = addDays(store.today, -range);
+    const from = range === 'month' ? monthStart(store.today) : addDays(store.today, -range);
     const [students, checkIns, trades, booksNow, booksPrev] = await Promise.all([
       api.listStudents(), api.listCheckIns(from, store.today), api.listAllTrades(addDays(from, -60), store.today),
       api.listAllRulebooks(monthStart(store.today)), api.listAllRulebooks(addMonths(store.today, -1)),
@@ -314,7 +335,7 @@ export async function viewAdminReview(root) {
           <button class="${filter === 'all' ? 'on' : ''}" data-filter="all">All</button>
         </div>
         ${batchFilter(batch)}
-        <select class="input slim" data-range>${[7, 14, 30, 60].map((n) => `<option value="${n}" ${n === range ? 'selected' : ''}>Last ${n} days</option>`).join('')}</select>
+        <select class="input slim" data-range><option value="month" ${range === 'month' ? 'selected' : ''}>This month</option>${[7, 14, 30, 60].map((n) => `<option value="${n}" ${n === range ? 'selected' : ''}>Last ${n} days</option>`).join('')}</select>
       </div>
       ${list.map((ci) => {
         const s = studentOf(ci.student_id);
@@ -329,7 +350,7 @@ export async function viewAdminReview(root) {
             </div>
             <div class="done-state">${checkInSummary(ci)}</div>
             ${sig.length ? `<div class="banner banner-amber"><strong>WORTH A LOOK</strong>${sig.map((x) => `<span>• ${esc(x)}</span>`).join('')}</div>` : ''}
-            ${dayTrades.map((t) => tradeCard(t)).join('') || '<p class="muted small">No trade posts on this day (logged before trade posts were required, or set by the coach).</p>'}
+            ${dayTrades.map((t) => tradeCard(t)).join('') || (ci.no_trade_proof ? '' : '<p class="muted small">No trade posts on this day (logged before trade posts were required, or set by the coach).</p>')}
             ${rb ? `<details class="rb"><summary>Their rules for ${esc(fmtDate(rb.month, { month: 'long' }))}</summary>${rulebookSummary(rb)}</details>` : '<p class="muted small">No rules set for this month.</p>'}
           </div>`;
       }).join('') || '<div class="card muted center">Nothing to review here.</div>'}`;
@@ -337,7 +358,7 @@ export async function viewAdminReview(root) {
     loadImages(root);
     $$('[data-filter]', root).forEach((b) => (b.onclick = () => { filter = b.dataset.filter; render(); }));
     $('[data-batch]', root).onchange = (e) => { batch = e.target.value; render(); };
-    $('[data-range]', root).onchange = (e) => { range = Number(e.target.value); render(); };
+    $('[data-range]', root).onchange = (e) => { range = e.target.value === 'month' ? 'month' : Number(e.target.value); render(); };
   }
   await render();
 }
@@ -805,7 +826,7 @@ function challengeForm(c, onDone) {
     name: `${fmtDate(next, { month: 'long' })} 30-Day Challenge`,
     description: 'Set your own rules, check in every trading day Monday to Friday, and follow them on every trade. Not trading on a no-trade day is a ✓, one X takes you out.',
     start_date: firstTrading, end_date: monthEnd(next), min_checkin_pct: 100, min_rules_pct: 100,
-    award_min_checkin_pct: 80, team_draw_count: 1,
+    award_min_checkin_pct: 80, min_trades: 5, team_draw_count: 1,
     // Batches that have started their lessons before the challenge begins.
     batch_ids: store.batches.filter((b) => b.start_date < firstTrading).map((b) => b.id),
   };
@@ -828,7 +849,9 @@ function challengeForm(c, onDone) {
       <div class="chips">${store.batches.map((b) => `<label class="check chip-check"><input type="checkbox" name="batch" value="${b.id}" ${(v.batch_ids ?? []).includes(b.id) ? 'checked' : ''} ${locked ? 'disabled' : ''}> ${esc(b.name)}</label>`).join('')}</div>
       <div class="form-row">
         <label>🎯 Most Disciplined: minimum check-in %<input class="input" type="number" min="0" max="100" name="award_min_checkin_pct" value="${v.award_min_checkin_pct ?? 80}" ${locked ? 'disabled' : ''}></label>
+        <label>Minimum trades to win a prize <span class="muted small">(0 = none)</span><input class="input" type="number" min="0" max="100" name="min_trades" value="${v.min_trades ?? 0}" ${locked ? 'disabled' : ''}></label>
       </div>
+      <p class="hint">Students can still pass the challenge with fewer trades, but every prize (🎯, ⚡ and the 🤝 draw) needs at least this many trades posted during the challenge.</p>
       <p class="hint">${locked ? 'Winners were already picked, so the competition settings are locked.' : 'Winners are picked automatically the day after the challenge ends: the top 🎯 Most Disciplined, the top ⚡ Most Active, and a random draw from the winning batch. One prize per person: someone who already won moves aside for the next in line.'}</p>
       <div class="field-label">Prizes <span class="muted small">(shown to students during the challenge; each winner gets the prize for their award)</span></div>
       ${Object.entries(AWARDS).map(([cat, a]) => {
@@ -840,10 +863,11 @@ function challengeForm(c, onDone) {
           <label>Account size${prizeSelect(`${key}.account_size`, ACCOUNT_SIZES, t.account_size)}</label>
           <label>Account type${prizeSelect(`${key}.account_type`, ACCOUNT_TYPES, t.account_type)}</label>
         </div>`;
-        return row(cat, t1, `${a.icon} ${a.label}: ${cat === 'team' ? 'winners drawn' : 'top'}`, cat === 'team' ? 0 : 1)
-          + row(`${cat}.extra`, t2, `↳ then the next <span class="muted small">(optional 2nd prize)</span>`, 0);
+        return `<div class="prize-group"><div class="field-label">${a.icon} ${a.label}</div>`
+          + row(cat, t1, `Prize 1: ${cat === 'team' ? 'how many drawn' : 'top how many'}`, cat === 'team' ? 0 : 1)
+          + row(`${cat}.extra`, t2, `Prize 2: how many more <span class="muted small">(0 = none)</span>`, 0) + '</div>';
       }).join('')}
-      <p class="hint">Example: Team draw 2 winners drawn ACG, then the next 3 Equity Edge = 5 winners drawn from the winning batch.</p>
+      <p class="hint">Each award can give two different prop firm accounts. Example for 🤝 Team draw: Prize 1 = 2 × ACG $10K 2-Step, Prize 2 = 3 × Equity Edge $10K Instant Funding, so 5 winners are drawn: the first 2 get ACG, the next 3 get Equity Edge.</p>
       <div class="row-end"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary">Save</button></div>
     </form>`, (dlg) => {
     $('[data-form]', dlg).addEventListener('submit', async (e) => {
@@ -867,7 +891,7 @@ function challengeForm(c, onDone) {
       };
       if (!locked) {
         const ids = fd.getAll('batch');
-        Object.assign(row, { batch_ids: ids.length ? ids : null, award_min_checkin_pct: Number(f.award_min_checkin_pct), team_draw_count: winnerCount(row, 'team') });
+        Object.assign(row, { batch_ids: ids.length ? ids : null, award_min_checkin_pct: Number(f.award_min_checkin_pct), min_trades: Math.max(0, Number(f.min_trades) || 0), team_draw_count: winnerCount(row, 'team') });
       }
       await busy(e.submitter, () => api.saveChallenge(row));
       store.challenges = await api.listChallenges();
@@ -898,13 +922,13 @@ export async function viewAdminChallenges(root) {
     let results = '';
     let reflections = [];
     if (ch) {
-      const [students, rows, refl, books, prizeRows, winnerNames] = await Promise.all([
+      const [students, rows, refl, books, prizeRows, winnerNames, counts] = await Promise.all([
         api.listStudents(), api.listCheckIns(ch.start_date, ch.end_date), api.listReflections(), api.listAllRulebooks(monthStart(ch.start_date)),
-        api.listWinners(ch.id), ch.finalized_at ? api.winnerList(ch.id) : [],
+        api.listWinners(ch.id), ch.finalized_at ? api.winnerList(ch.id) : [], api.tradeCounts(ch.id),
       ]);
       const marks = indexMarks(rows);
       const awards = challengeAwards(ch, students.filter((s) => s.role !== 'admin' && s.status === 'active' && inChallenge(ch, s))
-        .map((s) => ({ s, sum: summarize({ ...ctx(s, marks.get(s.id) ?? new Map()), from: ch.start_date, to: ch.end_date }) })));
+        .map((s) => ({ s, sum: summarize({ ...ctx(s, marks.get(s.id) ?? new Map()), from: ch.start_date, to: ch.end_date }), trades: counts.get(s.id) ?? 0 })));
       const claims = `
         <div class="card">
           <div class="row-between wrap"><h3>🏆 Winners &amp; prize claims</h3>
@@ -918,7 +942,7 @@ export async function viewAdminChallenges(root) {
                 const d = w.details ?? {};
                 return `<tr><td>${AWARDS[w.category].icon} ${AWARDS[w.category].label}${d.place ? ` <span class="muted small">#${d.place}</span>` : ''}</td>
                   <td><a href="#/admin/student/${w.student_id}">${esc(s?.full_name ?? '?')}</a><div class="muted small">${esc(batchName(s))}</div></td>
-                  <td class="small">${w.category === 'active' ? `${d.checkin_rate}% check-in` : w.category === 'discipline' ? `${d.discipline}% discipline · ${d.checkin_rate}% check-in` : `drawn · ${d.checkin_rate}% check-in`}</td>
+                  <td class="small">${w.category === 'active' ? `${d.checkin_rate}% check-in` : w.category === 'discipline' ? `${d.discipline}% discipline · ${d.checkin_rate}% check-in` : `drawn · ${d.checkin_rate}% check-in`}${d.trades != null ? ` · ${d.trades} trades` : ''}</td>
                   <td>${prizePick(w, 'prop_firm', PROP_FIRMS)}</td>
                   <td>${prizePick(w, 'account_size', ACCOUNT_SIZES)}</td>
                   <td>${prizePick(w, 'account_type', ACCOUNT_TYPES)}</td>

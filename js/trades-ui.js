@@ -5,7 +5,7 @@ import { fmtTime12, phTimeToNY } from './dates.js';
 import { sessionFor } from './rules.js';
 import { $, busy, esc, openModal, toast } from './ui.js';
 
-const SYMBOLS = ['NAS100', 'US30', 'SPX500', 'XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'BTCUSD'];
+export const SYMBOLS = ['NAS100', 'US30', 'SPX500', 'XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'BTCUSD'];
 const MAX_SIDE = 1600;
 
 // Shrinks a screenshot to at most 1600px on its longest side, as JPEG.
@@ -17,6 +17,26 @@ async function compress(file) {
   canvas.height = Math.round(bmp.height * scale);
   canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
   return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82));
+}
+
+// SHA-256 of the original file: the same screenshot always gives the same fingerprint.
+async function fingerprint(file) {
+  const buf = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Readies a screenshot for upload: { blob, hash }, or null (after telling the student why)
+// when it isn't an image or the exact same image was uploaded before, by them or anyone else.
+// taken = fingerprints already picked in the same form.
+export async function prepareShot(file, taken = []) {
+  if (!file?.type?.startsWith('image/')) { toast('That is not an image.', 'err'); return null; }
+  const hash = await fingerprint(file);
+  const seen = taken.includes(hash) ? 'mine' : await api.imageSeen(hash).catch(() => null);
+  if (seen) {
+    toast(seen === 'mine' ? 'You already uploaded this exact screenshot. Take a new one.' : 'This exact screenshot was already uploaded by another student. Upload your own.', 'err');
+    return null;
+  }
+  return { blob: await compress(file), hash };
 }
 
 export function showImage(src) {
@@ -64,6 +84,7 @@ export function openTradeForm({ studentId, date, trade, onSaved }) {
   const t = trade ?? {};
   // chart = the trade on the MT5 chart (entry, SL, TP); history = the trade in MT5 History.
   const blobs = { chart: null, history: null };
+  const hashes = { chart: null, history: null };
   const saved = { chart: t.chart_path, history: t.mt5_path };
   openModal(`
     <h3>${trade ? 'Edit trade' : 'Post a trade'}</h3>
@@ -123,8 +144,14 @@ export function openTradeForm({ studentId, date, trade, onSaved }) {
     showSession();
 
     const setFile = async (slot, file) => {
-      if (!file?.type?.startsWith('image/')) return toast('That is not an image.', 'err');
-      blobs[slot] = await compress(file);
+      const shot = await prepareShot(file, Object.entries(hashes).filter(([k]) => k !== slot).map(([, h]) => h).filter(Boolean));
+      if (!shot) {
+        const inp = $(`[data-file="${slot}"]`, dlg);
+        if (inp) inp.value = '';
+        return;
+      }
+      blobs[slot] = shot.blob;
+      hashes[slot] = shot.hash;
       const preview = $(`[data-preview="${slot}"]`, dlg);
       preview.src = URL.createObjectURL(blobs[slot]);
       preview.hidden = false;
@@ -139,7 +166,7 @@ export function openTradeForm({ studentId, date, trade, onSaved }) {
     });
     const upload = async (slot) => {
       if (!blobs[slot]) return saved[slot];
-      const path = await api.uploadExecution(studentId, blobs[slot]);
+      const path = await api.uploadExecution(studentId, blobs[slot], hashes[slot]);
       if (saved[slot] && saved[slot] !== 'sample') api.deleteImage(saved[slot]).catch(() => {});
       return path;
     };

@@ -113,6 +113,11 @@ export function createSupabaseApi(url, key) {
     setPrizeSent: (id, sent) =>
       run(sb.from('challenge_winners').update({ prize_sent_at: sent ? new Date().toISOString() : null }).eq('id', id).select().single()),
     finalizeChallengeNow: (id) => run(sb.rpc('finalize_challenge_now', { ch_id: id })),
+    // Map of student id -> trades posted during the challenge.
+    async tradeCounts(challengeId) {
+      const rows = await run(sb.rpc('challenge_trade_counts', { ch_id: challengeId }));
+      return new Map(rows.map((r) => [r.student_id, r.trades]));
+    },
 
     listReflections: () => run(sb.from('reflections').select('*').order('created_at', { ascending: false })),
     saveReflection: (r) =>
@@ -149,16 +154,23 @@ export function createSupabaseApi(url, key) {
     },
     deleteTrade: (id) => run(sb.from('trade_posts').delete().eq('id', id)),
 
-    async uploadExecution(studentId, blob) {
+    // hash = fingerprint of the original screenshot, so the same image can't be uploaded twice.
+    async uploadExecution(studentId, blob, hash) {
       const path = `${studentId}/${crypto.randomUUID()}.jpg`;
       await run(sb.storage.from('executions').upload(path, blob, { contentType: blob.type || 'image/jpeg' }));
+      if (hash) await run(sb.from('image_hashes').insert({ path, hash, student_id: studentId }));
       return path;
     },
+    // 'mine', 'other' (another student uploaded it) or null.
+    imageSeen: (hash) => run(sb.rpc('image_hash_owner', { h: hash })),
     async imageUrl(path) {
       const data = await run(sb.storage.from('executions').createSignedUrl(path, 3600));
       return data.signedUrl;
     },
-    deleteImage: (path) => run(sb.storage.from('executions').remove([path])),
+    async deleteImage(path) {
+      await run(sb.storage.from('executions').remove([path]));
+      await run(sb.from('image_hashes').delete().eq('path', path));
+    },
 
     async getSettings() {
       const rows = await run(sb.from('app_settings').select('*').eq('id', 1));
