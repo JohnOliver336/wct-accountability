@@ -67,12 +67,13 @@ export const ACCOUNT_SIZES = ['$5K', '$10K', '$25K', '$50K', '$100K'];
 export const ACCOUNT_TYPES = ['1-Step', '2-Step', 'Instant Funding'];
 
 // Challenge sponsors, shown on every page, the sign-in screen and the challenge page.
-// To show a logo, put the file in assets/sponsors/ and set logo, e.g. 'assets/sponsors/equity-edge.png'.
-// url (optional) makes the name a link, e.g. an affiliate link.
+// Logos are the firms' own logos from their websites, saved in assets/sponsors/ (white/green, made for dark backgrounds).
+// h = logo height in px (the 5ers mark is near-square, so it sits taller to read the same size).
+// url (optional) makes the logo a link, e.g. an affiliate link.
 export const SPONSORS = [
-  { name: 'Equity Edge', logo: null, url: null },
-  { name: 'Alpha Capital Group', logo: null, url: null },
-  { name: 'The5ers', logo: null, url: null },
+  { name: 'Equity Edge', logo: 'assets/sponsors/equity-edge.svg', h: 24, url: 'https://app.equityedge.io/signup/WCT/' },
+  { name: 'Alpha Capital Group', logo: 'assets/sponsors/alpha-capital-group.svg', h: 24, url: 'https://app.alphacapitalgroup.uk/signup/WCT/' },
+  { name: 'The5ers', logo: 'assets/sponsors/the5ers.svg', h: 34, url: 'https://www.the5ers.com/?afmc=1cre' },
 ];
 
 // "$10K The5ers 2-Step" from a prize ({ prop_firm, account_size, account_type }); '' until firm and size are set.

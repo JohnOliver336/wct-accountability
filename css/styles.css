@@ -420,7 +420,8 @@ label.check input { width: 18px; height: 18px; accent-color: var(--brand); }
 .sponsors-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
 .sponsor { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 6px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font-weight: 700; font-size: 14px; text-decoration: none; }
 a.sponsor:hover { border-color: var(--brand); }
-.sponsor img { max-height: 28px; max-width: 140px; display: block; }
+.sponsor img { height: 24px; width: auto; max-width: 150px; display: block; }
+.sponsor:has(img) { min-width: 150px; min-height: 52px; }
 .sponsor-card .sponsor { background: var(--surface-2); }
 .sponsors.on-auth { margin-top: 18px; width: 100%; max-width: 420px; }
 .auth:has(.on-auth) { align-content: center; }
