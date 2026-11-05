@@ -340,6 +340,63 @@ export function standingsHtml(ch, awards, winners, meId) {
     </div>`;
 }
 
+// The full rules of the challenge in one place. Every number comes from the challenge settings,
+// and every rule matches how the dashboard and public._finalize_challenge actually score.
+function howToWinCard(ch) {
+  const n = (cat) => winnerCount(ch, cat);
+  const top = (cat) => (n(cat) > 1 ? `The top ${n(cat)}` : 'The #1 student');
+  const minT = ch.min_trades ?? 0;
+  const tradesRule = minT ? `<li><b>Post at least ${minT} trade${minT > 1 ? 's' : ''} on the dashboard</b> between ${esc(fmtDate(ch.start_date))} and ${esc(fmtDate(ch.end_date))}. Below ${minT}, you're still ranked, but you can't win any prize.</li>` : '';
+  const awardMin = ch.award_min_checkin_pct ?? 80;
+  return `
+    <details class="card how-to-win" open>
+      <summary><h3>📜 How to win: the rules</h3><span class="muted small">Tap to hide or show</span></summary>
+
+      <h4>1. Every trading day, Monday to Friday</h4>
+      <ul>
+        <li><b>Check in</b> on the dashboard. A day with no check-in counts against your check-in rate.</li>
+        <li>Tap <b>✓</b> if you followed your rules, <b>X</b> if you broke any. Be honest: an X is part of the process, a fake ✓ is not.</li>
+        <li><b>NO TRADE DAY</b> (the red banner on your Today page): don't trade. If you didn't, that's a ✓. No proof needed.</li>
+        <li><b>Normal trading day but no setup?</b> Not trading is still a ✓, but you show proof: the market and session you watched, the setup you waited for, why it didn't come, and a screenshot of your chart.</li>
+        <li>Weekends and days with no session don't count.</li>
+      </ul>
+
+      <h4>2. Your two scores</h4>
+      <ul>
+        <li><b>Check-in rate</b> = days you checked in ÷ trading days so far.</li>
+        <li><b>Discipline %</b> = ✓ days ÷ (✓ + X days).</li>
+      </ul>
+
+      <h4>3. Pass the challenge (certificate)</h4>
+      <ul>
+        <li>Finish with at least <b>${ch.min_checkin_pct}% check-in rate</b> and <b>${ch.min_rules_pct}% discipline</b>.</li>
+        <li>Set your own rules (max risk, max trades, personal rules) in <a href="#/rules">My rules</a>. You can't finish without them.</li>
+      </ul>
+
+      <h4>4. Win a prize</h4>
+      <ul>
+        ${tradesRule}
+        <li><b>🎯 Most Disciplined:</b> ${top('discipline')} by discipline %, with at least ${awardMin}% check-in rate. Ties go to the higher check-in rate, then more ✓ days.</li>
+        <li><b>⚡ Most Active:</b> ${top('active')} by check-in rate. Ties go to more ✓ days, then discipline %.</li>
+        ${n('team') ? `<li><b>🤝 Team battle:</b> the batch with the best team score wins (each member's discipline % × check-in rate, averaged across the whole batch, so everyone who skips check-ins pulls the team down). ${n('team') > 1 ? `${n('team')} members` : 'One member'} of that batch ${n('team') > 1 ? 'are' : 'is'} drawn at random. To be in the draw, check in on at least half the days${minT ? ` and post at least ${minT} trades` : ''}.</li>` : ''}
+        <li>One prize per person. If you already won, the next student takes the next prize.</li>
+      </ul>
+
+      <h4>5. Play fair</h4>
+      <ul>
+        <li>Fake, random or copy-pasted proof counts as an <b>X</b>, and you lose your chance at a prize.</li>
+        <li>The same screenshot can't be uploaded twice, by you or anyone else.</li>
+        <li>Your coach reviews check-ins and proof. A check-in marked <b>not valid</b> counts as an X.</li>
+        <li>At the end of the challenge, all proof is checked before the winners are announced.</li>
+      </ul>
+
+      <h4>6. Claim your prize</h4>
+      <ul>
+        <li>Winners are shown on this page. Register at the prop firm, then enter the email you used there to claim your account.</li>
+      </ul>
+    </details>`;
+}
+
 function claimCard(w, ch) {
   const award = AWARDS[w.category];
   if (w.prize_sent_at) {
@@ -418,7 +475,9 @@ export async function viewChallenge(root) {
   const mine = reflections.find((r) => r.challenge_id === ch.id && r.student_id === me.id);
   const past = store.challenges.filter((x) => x.end_date < store.today && x.id !== ch.id).reverse();
   const msg = {
-    on_track: 'Every trading day, Monday to Friday: check in and follow your own rules. Not trading on a no-trade day is a ✓. One missed day or one X and you\'re out of this round.',
+    on_track: ch.min_checkin_pct >= 100 && ch.min_rules_pct >= 100
+      ? 'Every trading day, Monday to Friday: check in and follow your own rules. Not trading on a no-trade day is a ✓. One missed day or one X and you\'re out of this round.'
+      : `Every trading day, Monday to Friday: check in and follow your own rules. Not trading on a no-trade day is a ✓. Keep your check-in rate at ${ch.min_checkin_pct}% and your discipline at ${ch.min_rules_pct}% or higher to pass.`,
     needs_rules: 'You\'re still in, but you can\'t finish without your own rules. Set your max risk, max trades and personal rules now. <a href="#/rules">Set my rules →</a>',
     completed: 'You did it. Every single trading day, rules followed. That is the habit that makes traders consistent.',
     failed: 'This round is over for you, but keep checking in. Your streak and your rate still count, and the next challenge starts fresh.',
@@ -446,6 +505,7 @@ export async function viewChallenge(root) {
         return `<i class="dot ${cls}" title="${esc(fmtDate(d))}"></i>`;
       }).join('')}</div>
     </div>
+    ${howToWinCard(ch)}
     ${canReflect(ch, st, days) ? reflectionCard(ch, mine, st.state === 'completed') : ''}
     ${standingsHtml(ch, awards, winners, me.id)}
     ${past.length ? `<div class="card"><h3>Past challenges</h3>${past.map((p) => {

@@ -413,6 +413,14 @@ label.check input { width: 18px; height: 18px; accent-color: var(--brand); }
 .chip-check { background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; margin-top: 0 !important; }
 .mono { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
 
+/* ---------- how to win ---------- */
+.how-to-win summary { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
+.how-to-win summary::-webkit-details-marker { display: none; }
+.how-to-win summary h3 { margin: 0; }
+.how-to-win h4 { margin: 18px 0 6px; font-size: 14px; color: var(--brand); }
+.how-to-win ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 14px; line-height: 1.5; }
+.how-to-win a { color: var(--brand); }
+
 /* ---------- sponsors ---------- */
 .site-foot { max-width: 1080px; margin: 0 auto; padding: 8px 20px 110px; }
 .sponsors { text-align: center; }
