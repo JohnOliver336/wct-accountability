@@ -3,9 +3,10 @@
 // holidays, applies the coach's news rules, and writes the result to public.trading_days.
 // Days the coach set by hand (source = 'manual') are never touched.
 //
-// Rules (coach's update of 2026-11-11; the old "day before NFP/CPI/PPI = no trade" rule is gone):
+// Rules (coach confirmed 2026-11-11):
 //   - FOMC day (FOMC Statement / Federal Funds Rate)  -> NO TRADE
 //   - US bank holiday                                   -> NO TRADE
+//   - The trading day before NFP, Core CPI or Core PPI -> NO TRADE (combined with any other reason)
 //   - Core CPI, Core PPI or NFP at 8:30 New York time  -> trading day, trade only from 9:00
 //     (only these three; other 8:30 news like Unemployment Claims is a normal trading day)
 //   - Any other high or medium-impact USD news          -> trading allowed
@@ -61,6 +62,19 @@ function buildWeek(events: FFEvent[], now: string) {
   // Core CPI, Core PPI and NFP, whatever impact Forex Factory gives them.
   const isBig = (t: string) => BIG_RELEASE.some(([re]) => re.test(t));
 
+  // The day before each of those releases. A Monday release's day before is last Friday,
+  // which is in the previous week's feed, so it can't be set from here.
+  const dayBefore = new Map<string, string[]>();
+  for (const [date, list] of byDay) {
+    for (const [re, name] of BIG_RELEASE) {
+      if (!list.some((e) => re.test(e.title))) continue;
+      const prev = dow(date) === 1 ? null : addDays(date, -1);
+      if (prev && week.includes(prev)) dayBefore.set(prev, [...new Set([...(dayBefore.get(prev) ?? []), name])]);
+    }
+  }
+  const beforeText = (date: string) => (dayBefore.has(date) ? `Day before ${dayBefore.get(date)!.join(' & ')}` : '');
+  const join = (...parts: string[]) => parts.filter(Boolean).join(' · ');
+
   const rows: Row[] = [];
   for (const date of week) {
     const list = (byDay.get(date) ?? []).sort((a, b) => (a.impact === 'High' ? 0 : 1) - (b.impact === 'High' ? 0 : 1) || a.time.localeCompare(b.time));
@@ -69,8 +83,9 @@ function buildWeek(events: FFEvent[], now: string) {
     const label = [...new Set(news.map((e) => (e.time === '00:00' ? e.title : `${e.title} ${fmtTime(e.time)}`)))].join(' · ');
     const base = { date, is_trading_day: true, trade_allowed_after: null, source: 'forexfactory', synced_at: now };
 
-    if (holiday) rows.push({ ...base, news_status: 'NO_TRADE', news_label: `US holiday · ${holiday.title}` });
-    else if (news.some((e) => isFOMC(e.title))) rows.push({ ...base, news_status: 'NO_TRADE', news_label: `FOMC ${fmtTime(news.find((e) => isFOMC(e.title))!.time)}` });
+    if (holiday) rows.push({ ...base, news_status: 'NO_TRADE', news_label: join(`US holiday · ${holiday.title}`, beforeText(date)) });
+    else if (news.some((e) => isFOMC(e.title))) rows.push({ ...base, news_status: 'NO_TRADE', news_label: join(`FOMC ${fmtTime(news.find((e) => isFOMC(e.title))!.time)}`, beforeText(date)) });
+    else if (dayBefore.has(date)) rows.push({ ...base, news_status: 'NO_TRADE', news_label: join(beforeText(date), label) });
     else if (news.some((e) => e.time === '08:30' && isBig(e.title))) rows.push({ ...base, news_status: 'RESTRICTED', news_label: label, trade_allowed_after: '09:00' });
     else if (news.length) rows.push({ ...base, news_status: 'NORMAL', news_label: label });
     // No high or medium-impact news: no row, so the site shows a no-trade day.

@@ -5,7 +5,7 @@
 // aren't counted (market closed). Secrets: RESEND_API_KEY, EMAIL_FROM, SITE_URL.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 
-const SITE = Deno.env.get('SITE_URL') ?? 'https://johnoliver336.github.io/wct-accountability/';
+const SITE = Deno.env.get('SITE_URL') ?? 'https://dashboard.winnercircletraders.com/';
 const FROM = Deno.env.get('EMAIL_FROM') ?? 'WCT Accountability <onboarding@resend.dev>';
 
 function nyToday() {
