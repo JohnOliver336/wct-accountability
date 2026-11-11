@@ -3,11 +3,10 @@
 // holidays, applies the coach's news rules, and writes the result to public.trading_days.
 // Days the coach set by hand (source = 'manual') are never touched.
 //
-// Rules (from the October 2026 accountability sheet):
+// Rules (coach's update of 2026-11-11; the old "day before NFP/CPI/PPI = no trade" rule is gone):
 //   - FOMC day (FOMC Statement / Federal Funds Rate)  -> NO TRADE
-//   - The trading day before NFP, CPI or PPI           -> NO TRADE
-//   - High-impact release at 8:30 New York time        -> trade only after 9:00
 //   - US bank holiday                                   -> NO TRADE
+//   - NFP, CPI or PPI (or any high-impact release) at 8:30 New York time -> trading day, trade only from 9:00
 //   - Any other high or medium-impact USD news          -> trading allowed
 //   - No high or medium-impact USD news at all          -> no row (the site treats it as no trade)
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
@@ -58,14 +57,8 @@ function buildWeek(events: FFEvent[], now: string) {
     byDay.get(date)!.push({ title: e.title, impact: e.impact, time });
   }
 
-  const dayBefore = new Map<string, string[]>();
-  for (const [date, list] of byDay) {
-    for (const [re, name] of BIG_RELEASE) {
-      if (!list.some((e) => re.test(e.title))) continue;
-      const prev = dow(date) === 1 ? null : addDays(date, -1); // a Monday release's "day before" is last week
-      if (prev && week.includes(prev)) dayBefore.set(prev, [...(dayBefore.get(prev) ?? []), name]);
-    }
-  }
+  // NFP, CPI and PPI always count, even when Forex Factory rates a version of them Medium.
+  const isBig = (t: string) => BIG_RELEASE.some(([re]) => re.test(t));
 
   const rows: Row[] = [];
   for (const date of week) {
@@ -77,8 +70,7 @@ function buildWeek(events: FFEvent[], now: string) {
 
     if (holiday) rows.push({ ...base, news_status: 'NO_TRADE', news_label: `US holiday · ${holiday.title}` });
     else if (news.some((e) => isFOMC(e.title))) rows.push({ ...base, news_status: 'NO_TRADE', news_label: `FOMC ${fmtTime(news.find((e) => isFOMC(e.title))!.time)}` });
-    else if (dayBefore.has(date)) rows.push({ ...base, news_status: 'NO_TRADE', news_label: `Day before ${[...new Set(dayBefore.get(date))].join(' & ')}${label ? ` · ${label}` : ''}` });
-    else if (news.some((e) => e.impact === 'High' && e.time === '08:30')) rows.push({ ...base, news_status: 'RESTRICTED', news_label: label, trade_allowed_after: '09:00' });
+    else if (news.some((e) => e.time === '08:30' && (e.impact === 'High' || isBig(e.title)))) rows.push({ ...base, news_status: 'RESTRICTED', news_label: label, trade_allowed_after: '09:00' });
     else if (news.length) rows.push({ ...base, news_status: 'NORMAL', news_label: label });
     // No high or medium-impact news: no row, so the site shows a no-trade day.
   }

@@ -722,7 +722,7 @@ export async function viewAdminCalendar(root) {
         <p class="muted">Students see each day's status before they check in. ${newsOnly
           ? '<strong>Your rule: no high or medium-impact news means no trading.</strong>'
           : 'Weekdays without anything set here are normal trading days.'}
-          The week fills itself from <strong>Forex Factory</strong> (USD, high and medium impact) every 6 hours: FOMC and the day before NFP, CPI or PPI become NO TRADE, and 8:30 high-impact releases become "trade after 9:00". Any day you edit yourself is never overwritten. The rule can be switched off in Setup.</p></section>
+          The week fills itself from <strong>Forex Factory</strong> (USD, high and medium impact) every 6 hours: FOMC days and US holidays become NO TRADE, and NFP, CPI, PPI or any other 8:30 high-impact release becomes "trade only from 9:00". Any day you edit yourself is never overwritten. The rule can be switched off in Setup.</p></section>
       <div class="row-between wrap ff-bar">
         <span class="muted small">${lastSync ? `Last Forex Factory sync: ${esc(new Date(lastSync).toLocaleString('en-US', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} PH` : 'Not synced from Forex Factory yet.'}</span>
         <button class="btn ghost small" data-sync>↻ Sync from Forex Factory now</button>
