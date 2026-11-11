@@ -6,7 +6,8 @@
 // Rules (coach's update of 2026-11-11; the old "day before NFP/CPI/PPI = no trade" rule is gone):
 //   - FOMC day (FOMC Statement / Federal Funds Rate)  -> NO TRADE
 //   - US bank holiday                                   -> NO TRADE
-//   - NFP, CPI or PPI (or any high-impact release) at 8:30 New York time -> trading day, trade only from 9:00
+//   - Core CPI, Core PPI or NFP at 8:30 New York time  -> trading day, trade only from 9:00
+//     (only these three; other 8:30 news like Unemployment Claims is a normal trading day)
 //   - Any other high or medium-impact USD news          -> trading allowed
 //   - No high or medium-impact USD news at all          -> no row (the site treats it as no trade)
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
@@ -19,8 +20,8 @@ type Row = { date: string; is_trading_day: boolean; news_status: string; news_la
 const isFOMC = (t: string) => /FOMC Statement|Federal Funds Rate/i.test(t);
 const BIG_RELEASE: [RegExp, string][] = [
   [/Non-Farm Employment Change/i, 'NFP'],
-  [/^(Core )?CPI (m\/m|y\/y)/i, 'CPI'],
-  [/^(Core )?PPI (m\/m|y\/y)/i, 'PPI'],
+  [/^Core CPI (m\/m|y\/y)/i, 'Core CPI'],
+  [/^Core PPI (m\/m|y\/y)/i, 'Core PPI'],
 ];
 
 function nyParts(iso: string) {
@@ -57,7 +58,7 @@ function buildWeek(events: FFEvent[], now: string) {
     byDay.get(date)!.push({ title: e.title, impact: e.impact, time });
   }
 
-  // NFP, CPI and PPI always count, even when Forex Factory rates a version of them Medium.
+  // Core CPI, Core PPI and NFP, whatever impact Forex Factory gives them.
   const isBig = (t: string) => BIG_RELEASE.some(([re]) => re.test(t));
 
   const rows: Row[] = [];
@@ -70,7 +71,7 @@ function buildWeek(events: FFEvent[], now: string) {
 
     if (holiday) rows.push({ ...base, news_status: 'NO_TRADE', news_label: `US holiday · ${holiday.title}` });
     else if (news.some((e) => isFOMC(e.title))) rows.push({ ...base, news_status: 'NO_TRADE', news_label: `FOMC ${fmtTime(news.find((e) => isFOMC(e.title))!.time)}` });
-    else if (news.some((e) => e.time === '08:30' && (e.impact === 'High' || isBig(e.title)))) rows.push({ ...base, news_status: 'RESTRICTED', news_label: label, trade_allowed_after: '09:00' });
+    else if (news.some((e) => e.time === '08:30' && isBig(e.title))) rows.push({ ...base, news_status: 'RESTRICTED', news_label: label, trade_allowed_after: '09:00' });
     else if (news.length) rows.push({ ...base, news_status: 'NORMAL', news_label: label });
     // No high or medium-impact news: no row, so the site shows a no-trade day.
   }
