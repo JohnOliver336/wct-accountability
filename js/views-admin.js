@@ -722,7 +722,7 @@ export async function viewAdminCalendar(root) {
         <p class="muted">Students see each day's status before they check in. ${newsOnly
           ? '<strong>Your rule: no high or medium-impact news means no trading.</strong>'
           : 'Weekdays without anything set here are normal trading days.'}
-          The week fills itself from <strong>Forex Factory</strong> (USD, high and medium impact) every 6 hours: FOMC days, US holidays and the day before NFP, Core CPI or Core PPI become NO TRADE, and Core CPI, Core PPI or NFP at 8:30 becomes "trade only from 9:00" (other 8:30 news is a normal trading day). Any day you edit yourself is never overwritten. The rule can be switched off in Setup.</p></section>
+          The week fills itself from <strong>Forex Factory</strong> (USD, high and medium impact) every 6 hours: FOMC days (Statement, rate decision or Meeting Minutes, not member speeches), US holidays and the day before NFP, Core CPI or Core PPI become NO TRADE, and Core CPI, Core PPI or NFP at 8:30 AM becomes "trade only from 9:00 AM" (other 8:30 AM news is a normal trading day). All times are New York time. Any day you edit yourself is never overwritten. The rule can be switched off in Setup.</p></section>
       <div class="row-between wrap ff-bar">
         <span class="muted small">${lastSync ? `Last Forex Factory sync: ${esc(new Date(lastSync).toLocaleString('en-US', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} PH` : 'Not synced from Forex Factory yet.'}</span>
         <button class="btn ghost small" data-sync>↻ Sync from Forex Factory now</button>
@@ -772,7 +772,7 @@ export async function viewAdminCalendar(root) {
           <option value="RESTRICTED" ${r.news_status === 'RESTRICTED' ? 'selected' : ''}>News day: trade only after a time</option>
           <option value="NO_TRADE" ${r.news_status === 'NO_TRADE' ? 'selected' : ''}>NO TRADE day</option>
         </select></label>
-        <label>Today's news <span class="muted small">(tap to add)</span><input class="input" name="news_label" value="${esc(r.news_label)}" placeholder="e.g. Unemployment Claims 8:30, Core CPI 8:30"></label>
+        <label>Today's news <span class="muted small">(tap to add)</span><input class="input" name="news_label" value="${esc(r.news_label)}" placeholder="e.g. Unemployment Claims 8:30 AM NY, Core CPI 8:30 AM NY"></label>
         <div class="field-label">High impact</div>
         <div class="chips">${HIGH_IMPACT.map((x) => `<button type="button" class="chip" data-event="${esc(x)}">+ ${esc(x)}</button>`).join('')}</div>
         <div class="field-label">Medium impact</div>

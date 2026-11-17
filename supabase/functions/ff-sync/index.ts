@@ -3,8 +3,9 @@
 // holidays, applies the coach's news rules, and writes the result to public.trading_days.
 // Days the coach set by hand (source = 'manual') are never touched.
 //
-// Rules (coach confirmed 2026-11-11):
-//   - FOMC day (FOMC Statement / Federal Funds Rate)  -> NO TRADE
+// Rules (coach confirmed 2026-11-11; FOMC Meeting Minutes added 2026-11-16):
+//   - FOMC day (FOMC Statement / Federal Funds Rate / FOMC Meeting Minutes) -> NO TRADE
+//     ("FOMC Member ... Speaks" is NOT an FOMC day)
 //   - US bank holiday                                   -> NO TRADE
 //   - The trading day before NFP, Core CPI or Core PPI -> NO TRADE (combined with any other reason)
 //   - Core CPI, Core PPI or NFP at 8:30 New York time  -> trading day, trade only from 9:00
@@ -18,7 +19,7 @@ const FEED = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
 type FFEvent = { title: string; country: string; date: string; impact: string };
 type Row = { date: string; is_trading_day: boolean; news_status: string; news_label: string | null; trade_allowed_after: string | null; source: string; synced_at: string };
 
-const isFOMC = (t: string) => /FOMC Statement|Federal Funds Rate/i.test(t);
+const isFOMC = (t: string) => /FOMC Statement|Federal Funds Rate|FOMC Meeting Minutes/i.test(t);
 const BIG_RELEASE: [RegExp, string][] = [
   [/Non-Farm Employment Change/i, 'NFP'],
   [/^Core CPI (m\/m|y\/y)/i, 'Core CPI'],
@@ -38,9 +39,10 @@ const addDays = (d: string, n: number) => {
   return t.toISOString().slice(0, 10);
 };
 const dow = (d: string) => new Date(d + 'T12:00:00Z').getUTCDay();
+// '14:00' -> '2:00 PM NY'. Labels always say AM/PM and New York, so "2:00" can't be read as 2am.
 const fmtTime = (hhmm: string) => {
   const [h, m] = hhmm.split(':').map(Number);
-  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')}`;
+  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'} NY`;
 };
 
 function buildWeek(events: FFEvent[], now: string) {
@@ -84,7 +86,11 @@ function buildWeek(events: FFEvent[], now: string) {
     const base = { date, is_trading_day: true, trade_allowed_after: null, source: 'forexfactory', synced_at: now };
 
     if (holiday) rows.push({ ...base, news_status: 'NO_TRADE', news_label: join(`US holiday · ${holiday.title}`, beforeText(date)) });
-    else if (news.some((e) => isFOMC(e.title))) rows.push({ ...base, news_status: 'NO_TRADE', news_label: join(`FOMC ${fmtTime(news.find((e) => isFOMC(e.title))!.time)}`, beforeText(date)) });
+    else if (news.some((e) => isFOMC(e.title))) {
+      const f = news.find((e) => isFOMC(e.title))!;
+      const name = /Minutes/i.test(f.title) ? 'FOMC Meeting Minutes' : 'FOMC';
+      rows.push({ ...base, news_status: 'NO_TRADE', news_label: join(f.time === '00:00' ? name : `${name} ${fmtTime(f.time)}`, beforeText(date)) });
+    }
     else if (dayBefore.has(date)) rows.push({ ...base, news_status: 'NO_TRADE', news_label: join(beforeText(date), label) });
     else if (news.some((e) => e.time === '08:30' && isBig(e.title))) rows.push({ ...base, news_status: 'RESTRICTED', news_label: label, trade_allowed_after: '09:00' });
     else if (news.length) rows.push({ ...base, news_status: 'NORMAL', news_label: label });
