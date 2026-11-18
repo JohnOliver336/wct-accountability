@@ -7,7 +7,8 @@
 //   - FOMC day (FOMC Statement / Federal Funds Rate / FOMC Meeting Minutes) -> NO TRADE
 //     ("FOMC Member ... Speaks" is NOT an FOMC day)
 //   - US bank holiday                                   -> NO TRADE
-//   - The trading day before NFP, Core CPI or Core PPI -> NO TRADE (combined with any other reason)
+//   - The trading day before NFP, Core CPI or Core PPI -> NO TRADE (combined with any other reason),
+//     EXCEPT when that day is itself a Core CPI / Core PPI / NFP day (Oliver, 2026-11-18)
 //   - Core CPI, Core PPI or NFP at 8:30 New York time  -> trading day, trade only from 9:00
 //     (only these three; other 8:30 news like Unemployment Claims is a normal trading day)
 //   - Any other high or medium-impact USD news          -> trading allowed
@@ -91,8 +92,11 @@ function buildWeek(events: FFEvent[], now: string) {
       const name = /Minutes/i.test(f.title) ? 'FOMC Meeting Minutes' : 'FOMC';
       rows.push({ ...base, news_status: 'NO_TRADE', news_label: join(f.time === '00:00' ? name : `${name} ${fmtTime(f.time)}`, beforeText(date)) });
     }
-    else if (dayBefore.has(date)) rows.push({ ...base, news_status: 'NO_TRADE', news_label: join(beforeText(date), label) });
+    // A Core CPI / Core PPI / NFP day that is ALSO the day before another of them (e.g. CPI Wed,
+    // PPI Thu) stays a 9:00 trading day: the news-day rule wins over the day-before rule.
+    // Oliver's own decision, 2026-11-18: "i would still trade CPI day at 9am nyt".
     else if (news.some((e) => e.time === '08:30' && isBig(e.title))) rows.push({ ...base, news_status: 'RESTRICTED', news_label: label, trade_allowed_after: '09:00' });
+    else if (dayBefore.has(date)) rows.push({ ...base, news_status: 'NO_TRADE', news_label: join(beforeText(date), label) });
     else if (news.length) rows.push({ ...base, news_status: 'NORMAL', news_label: label });
     // No high or medium-impact news: no row, so the site shows a no-trade day.
   }
